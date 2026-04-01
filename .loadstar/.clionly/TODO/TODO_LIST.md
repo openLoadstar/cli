@@ -2,12 +2,12 @@
 
 | 실행 요소 (Executor) | 요청 요소 (Requester) | 발생 시간 (Time) | 작업 요약 (Summary) | 상태 (Status) | 선행 조건 (Depends_On) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| W://root/cli/cmd_rollback | NONE | 2026-03-13 12:38 | rollback 명령어 구현 (History 스냅샷으로 요소 파일 복원) | PENDING | W://root/cli/cmd_diff |
-| W://root/cli/cmd_diff | NONE | 2026-03-13 12:38 | diff 명령어 구현 (현재 파일 vs History 스냅샷 unified diff 출력) | PENDING | W://root/cli/cmd_history |
-| W://root/cli/cmd_show | NONE | 2026-03-13 12:37 | show 명령어 구현 (요소 출력 + depth N 트리 재귀) | PENDING | - |
-| W://root/cli/cmd_link | NONE | 2026-03-13 12:37 | link 명령어 구현 (Link md 생성 + 양방향 CONNECTIONS 등록) | PENDING | - |
-| W://root/cli/cmd_history | NONE | 2026-03-13 12:37 | history 명령어 구현 (HISTORY/ 스냅샷 목록 역순 출력) | PENDING | - |
-| W://root/cli/cmd_checkpoint | NONE | 2026-03-13 12:37 | checkpoint -m 명령어 구현 (git commit + SavePoint 해시 기입 원자적 처리) | PENDING | - |
+| W://root/cli/cmd_rollback | NONE | 2026-04-01 17:45 | 코드 검토 및 SPEC 대조 — 현재 HISTORY 스냅샷 복원 방식, SPEC은 GIT_REF → git checkout 방식 | PENDING | - |
+| W://root/cli/cmd_diff | NONE | 2026-04-01 17:45 | 코드 검토 및 SPEC 대조 — 현재 HISTORY 스냅샷 직접 비교 방식, SPEC은 GIT_REF → git diff 방식 | PENDING | - |
+| W://root/cli/cmd_history | NONE | 2026-04-01 17:45 | 코드 검토 및 SPEC 대조 — 현재 HISTORY 파일 스캔 방식, SPEC은 CHANGE_LOG/GIT_REF 기반 | PENDING | - |
+| W://root/cli/meta_sync | NONE | 2026-04-01 17:44 | 구현 완료 명령어 WayPoint/BlackBox 신규 생성 — cmd_git, cmd_log, cmd_init | PENDING | - |
+| W://root/cli/cmd_create | NONE | 2026-04-01 17:44 | appendToContains multiline ITEMS 포맷 파싱 버그 수정 | PENDING | - |
+| W://root/cli/cmd_checkpoint | NONE | 2026-04-01 17:36 | checkpoint SPEC 미구현 항목 완료 — GIT_INDEX 생성, CHANGE_LOG GIT_REF 역기입, GIT_INDEX 커밋 해시 역기입, HISTORY 임시 스냅샷 정리 | PENDING | - |
 
 ---
 ### 운영 지침 (Operational Rules)
