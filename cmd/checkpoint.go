@@ -1,48 +1,51 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/tabwriter"
-	"time"
 
 	"github.com/bono/loadstar/internal/git"
-	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/cobra"
 )
 
 var checkpointCmd = &cobra.Command{
 	Use:   "checkpoint",
-	Short: "Commit code and metadata atomically, and update SavePoint with git hash",
+	Short: "Commit .loadstar/ metadata atomically",
+	Long: `Atomically commit .loadstar/ metadata in a single git commit.
+Changed element addresses are automatically listed in the commit message.
+If a remote is configured (loadstar git set), the commit is pushed automatically.
+
+Use --auto to mark the commit as an automatic checkpoint (adds [AUTO-CHECKPOINT] prefix).
+
+Examples:
+  loadstar checkpoint -m "implement cmd_log"
+  loadstar checkpoint -m "fix: appendToContains multiline parsing"
+  loadstar checkpoint --auto -m "periodic auto save"`,
 	Run: func(cmd *cobra.Command, args []string) {
 		message, _ := cmd.Flags().GetString("message")
+		auto, _ := cmd.Flags().GetBool("auto")
 		loadstarBase := fs.AvcsPath("")
 
+		// Collect changed .loadstar/ files for commit message enrichment
+		changedFiles, _ := gitClient.ChangedLoadstarFiles()
+		commitMsg := buildCheckpointMessage(message, auto, changedFiles)
+
 		// Commit via git — Atomic: abort if commit fails
-		hash, err := gitClient.Commit(message)
+		hash, err := gitClient.Commit(commitMsg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: git commit failed: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("committed: %s\n", hash)
 
-		// Update ACTIVE SavePoint files with commit hash
-		spDir := filepath.Join(loadstarBase, "SAVEPOINT")
-		files, _ := fs.ListByPrefix(spDir, "")
-		for _, f := range files {
-			content, err := fs.Read(f)
-			if err != nil {
-				continue
-			}
-			if !strings.Contains(content, "S_ACT") {
-				continue
-			}
-			updated := content + fmt.Sprintf("- git: %s\n", hash)
-			_ = fs.Write(f, updated)
+		// Delete checkpoint_needed.flag if exists
+		flagFile := filepath.Join(loadstarBase, ".clionly", "MONITOR", "checkpoint_needed.flag")
+		if fs.Exists(flagFile) {
+			_ = os.Remove(flagFile)
+			fmt.Println("cleared: checkpoint_needed.flag")
 		}
 
 		fmt.Printf("checkpoint complete: %s\n", message)
@@ -63,154 +66,43 @@ var checkpointCmd = &cobra.Command{
 	},
 }
 
-var historyCmd = &cobra.Command{
-	Use:   "history [ADDRESS]",
-	Short: "Show change history of an element",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		addr, err := svc.ParseAddress(args[0])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+// buildCheckpointMessage constructs a commit message with the user message,
+// optional [AUTO-CHECKPOINT] prefix, and a list of changed .loadstar/ elements.
+func buildCheckpointMessage(userMsg string, auto bool, changedFiles []string) string {
+	var sb strings.Builder
+
+	if auto {
+		sb.WriteString("[AUTO-CHECKPOINT] ")
+	}
+	sb.WriteString(userMsg)
+
+	// Filter to element directories only
+	elementDirs := map[string]bool{
+		"WAYPOINT": true, "BLACKBOX": true, "MAP": true,
+	}
+	var elements []string
+	for _, f := range changedFiles {
+		parts := strings.SplitN(f, "/", 3)
+		if len(parts) >= 3 && elementDirs[parts[1]] {
+			elements = append(elements, parts[1]+"/"+parts[2])
 		}
-		loadstarBase := fs.AvcsPath("")
-		histDir := filepath.Join(loadstarBase, "HISTORY")
-		dotName := strings.ReplaceAll(addr.Path, "/", ".")
-		prefix := dotName + "_"
+	}
 
-		entries, err := fs.ListByPrefix(histDir, prefix)
-		if err != nil || len(entries) == 0 {
-			fmt.Printf("no history found for %s\n", args[0])
-			return
+	if len(elements) > 0 {
+		sort.Strings(elements)
+		sb.WriteString("\n\n변경 요소:\n")
+		for _, e := range elements {
+			sb.WriteString("- ")
+			sb.WriteString(e)
+			sb.WriteString("\n")
 		}
+	}
 
-		// Sort by filename descending (newest first)
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i] > entries[j]
-		})
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "H_ID\tSIZE")
-		fmt.Fprintln(w, "----\t----")
-		for _, e := range entries {
-			base := filepath.Base(e)
-			hID := strings.TrimSuffix(base, ".md")
-			info, _ := os.Stat(e)
-			size := int64(0)
-			if info != nil {
-				size = info.Size()
-			}
-			fmt.Fprintf(w, "%s\t%d bytes\n", hID, size)
-		}
-		w.Flush()
-	},
-}
-
-var diffCmd = &cobra.Command{
-	Use:   "diff [ADDRESS] [H_ID]",
-	Short: "Compare current element with a history snapshot",
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		addr, err := svc.ParseAddress(args[0])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		loadstarBase := fs.AvcsPath("")
-		currentFile := addr.ToFilePath(loadstarBase)
-		histFile := filepath.Join(loadstarBase, "HISTORY", args[1]+".md")
-
-		if !fs.Exists(currentFile) {
-			fmt.Fprintf(os.Stderr, "error: element not found: %s\n", args[0])
-			os.Exit(1)
-		}
-		if !fs.Exists(histFile) {
-			fmt.Fprintf(os.Stderr, "error: history snapshot not found: %s\n", args[1])
-			os.Exit(1)
-		}
-
-		current, _ := fs.Read(currentFile)
-		hist, _ := fs.Read(histFile)
-
-		dmp := diffmatchpatch.New()
-		diffs := dmp.DiffMain(hist, current, false)
-		diffs = dmp.DiffCleanupSemantic(diffs)
-
-		for _, d := range diffs {
-			lines := strings.Split(d.Text, "\n")
-			for _, line := range lines {
-				if line == "" {
-					continue
-				}
-				switch d.Type {
-				case diffmatchpatch.DiffInsert:
-					fmt.Printf("\033[32m+ %s\033[0m\n", line)
-				case diffmatchpatch.DiffDelete:
-					fmt.Printf("\033[31m- %s\033[0m\n", line)
-				case diffmatchpatch.DiffEqual:
-					fmt.Printf("  %s\n", line)
-				}
-			}
-		}
-	},
-}
-
-var rollbackCmd = &cobra.Command{
-	Use:   "rollback [ADDRESS] [H_ID]",
-	Short: "Rollback an element to a previous history snapshot",
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		force, _ := cmd.Flags().GetBool("force")
-		addr, err := svc.ParseAddress(args[0])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		loadstarBase := fs.AvcsPath("")
-		currentFile := addr.ToFilePath(loadstarBase)
-		histFile := filepath.Join(loadstarBase, "HISTORY", args[1]+".md")
-
-		if !fs.Exists(currentFile) {
-			fmt.Fprintf(os.Stderr, "error: element not found: %s\n", args[0])
-			os.Exit(1)
-		}
-		if !fs.Exists(histFile) {
-			fmt.Fprintf(os.Stderr, "error: history snapshot not found: %s\n", args[1])
-			os.Exit(1)
-		}
-
-		if !force {
-			fmt.Printf("rollback %s to %s? [y/N] ", args[0], args[1])
-			reader := bufio.NewReader(os.Stdin)
-			answer, _ := reader.ReadString('\n')
-			answer = strings.TrimSpace(strings.ToLower(answer))
-			if answer != "y" && answer != "yes" {
-				fmt.Println("aborted")
-				return
-			}
-		}
-
-		// Pre-rollback backup
-		ts := time.Now().Format("20060102T150405")
-		dotName := strings.ReplaceAll(addr.Path, "/", ".")
-		preBackup := filepath.Join(loadstarBase, "HISTORY", dotName+"_"+ts+"_pre_rollback.md")
-		if err := fs.CopyFile(currentFile, preBackup); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not create pre-rollback backup: %v\n", err)
-		}
-
-		// Restore from snapshot
-		if err := fs.CopyFile(histFile, currentFile); err != nil {
-			fmt.Fprintf(os.Stderr, "error: rollback failed: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("rolled back: %s -> %s\n", args[0], args[1])
-		fmt.Println("note: CONTAINS, LINEAGE, and LINKS are not automatically restored — verify manually")
-	},
+	return sb.String()
 }
 
 func init() {
 	checkpointCmd.Flags().StringP("message", "m", "", "Checkpoint message")
 	checkpointCmd.MarkFlagRequired("message")
-	rollbackCmd.Flags().Bool("force", false, "Skip confirmation prompt")
+	checkpointCmd.Flags().Bool("auto", false, "Mark as automatic checkpoint (adds [AUTO-CHECKPOINT] prefix)")
 }

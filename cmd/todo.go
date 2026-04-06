@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -14,24 +13,48 @@ import (
 const todoListFile = ".clionly/TODO/TODO_LIST.md"
 const todoHistoryFile = ".clionly/TODO/TODO_HISTORY.md"
 
-var todoHeader = "| 실행 요소 (Executor) | 요청 요소 (Requester) | 발생 시간 (Time) | 작업 요약 (Summary) | 상태 (Status) | 선행 조건 (Depends_On) |"
-var todoSep = "| :--- | :--- | :--- | :--- | :--- | :--- |"
+var todoHeader = "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 상태 (Status) | 선행 조건 (Depends_On) |"
+var todoSep = "| :--- | :--- | :--- | :--- | :--- |"
 
 var todoCmd = &cobra.Command{
 	Use:   "todo",
 	Short: "Manage TODO items in TODO_LIST",
+	Long: `Manage the project TODO list stored in .loadstar/.clionly/TODO/TODO_LIST.md.
+Do NOT edit that file directly — always use these commands.
+
+Subcommands:
+  add      Add a new TODO item (status: PENDING)
+  list     Show current PENDING/ACTIVE items (BLOCKED auto-detected)
+  update   Change status to PENDING / ACTIVE / BLOCKED
+  done     Mark as completed and move to TODO_HISTORY
+  delete   Remove without completion record
+  history  Show TODO_HISTORY (all completed/deleted events)
+
+Quick start:
+  loadstar todo add W://root/cli/cmd_log "log/findlog 구현"
+  loadstar todo list
+  loadstar todo update W://root/cli/cmd_log ACTIVE
+  loadstar todo done W://root/cli/cmd_log`,
 }
 
 var todoAddCmd = &cobra.Command{
-	Use:   "add [EXECUTOR] [REQUESTER] [SUMMARY]",
+	Use:   "add [ADDRESS] [SUMMARY]",
 	Short: "Add a new TODO item",
-	Args:  cobra.ExactArgs(3),
+	Long: `Add a new TODO item to the project TODO list (status: PENDING).
+
+  ADDRESS  W:// address of the WayPoint for this task
+  SUMMARY  One-line description of the task
+
+Examples:
+  loadstar todo add W://root/cli/cmd_log "log/findlog 구현"
+  loadstar todo add W://root/cli/cmd_sync "sync 구현" --depends W://root/cli/cmd_log`,
+	Args: cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		depends, _ := cmd.Flags().GetString("depends")
 		if depends == "" {
 			depends = "-"
 		}
-		executor, requester, summary := args[0], args[1], args[2]
+		address, summary := args[0], args[1]
 		now := time.Now().Format("2006-01-02 15:04")
 
 		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
@@ -43,8 +66,8 @@ var todoAddCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		newRow := fmt.Sprintf("| %s | %s | %s | %s | PENDING | %s |",
-			executor, requester, now, summary, depends)
+		newRow := fmt.Sprintf("| %s | %s | %s | PENDING | %s |",
+			address, now, summary, depends)
 
 		lines := strings.Split(string(content), "\n")
 		insertIdx := -1
@@ -64,16 +87,21 @@ var todoAddCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "error: could not write TODO list: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("todo added: %s\n", executor)
+		fmt.Printf("todo added: %s\n", address)
 	},
 }
 
 var todoDoneCmd = &cobra.Command{
-	Use:   "done [EXECUTOR]",
+	Use:   "done [ADDRESS]",
 	Short: "Mark a TODO item as completed and move to TODO_HISTORY",
-	Args:  cobra.ExactArgs(1),
+	Long: `Mark a TODO item as COMPLETED.
+The item is removed from TODO_LIST and recorded in TODO_HISTORY.
+
+Examples:
+  loadstar todo done W://root/cli/cmd_log`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		executor := args[0]
+		address := args[0]
 		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
 
 		content, err := os.ReadFile(todoPath)
@@ -85,12 +113,10 @@ var todoDoneCmd = &cobra.Command{
 		lines := strings.Split(string(content), "\n")
 		found := false
 		var doneRow string
-		var summary string
 		var kept []string
 		for _, line := range lines {
-			if isDataRow(line) && extractCol(line, 0) == executor {
+			if isDataRow(line) && extractCol(line, 0) == address {
 				found = true
-				summary = extractCol(line, 3)
 				doneRow = line
 				continue
 			}
@@ -98,8 +124,19 @@ var todoDoneCmd = &cobra.Command{
 		}
 
 		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for executor: %s\n", executor)
+			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
 			os.Exit(1)
+		}
+
+		// Clear Depends_On references to the completed address
+		for i, line := range kept {
+			if isDataRow(line) && extractCol(line, 4) == address {
+				parts := strings.Split(line, "|")
+				if len(parts) >= 6 {
+					parts[5] = " - "
+					kept[i] = strings.Join(parts, "|")
+				}
+			}
 		}
 
 		// Remove from TODO_LIST
@@ -112,36 +149,33 @@ var todoDoneCmd = &cobra.Command{
 		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
 		appendTodoHistory(histPath, doneRow, "DONE")
 
-		// Append to executor element's EXECUTION_HISTORY
-		addr, err := svc.ParseAddress(executor)
-		if err == nil {
-			loadstarBase := fs.AvcsPath("")
-			elemFile := addr.ToFilePath(loadstarBase)
-			if fs.Exists(elemFile) {
-				appendExecutionHistory(elemFile, summary)
-			}
-		}
-
-		fmt.Printf("todo done: %s\n", executor)
+		fmt.Printf("todo done: %s\n", address)
 	},
 }
 
 // allowedUpdateStatuses lists the status values that todo update accepts.
-// COMPLETED and FAILED are intentionally excluded — use `todo done` instead.
 var allowedUpdateStatuses = map[string]bool{
-	"PENDING": true, "ACTIVE": true, "BLOCKED": true,
+	"PENDING": true, "ACTIVE": true,
 }
 
 var todoUpdateCmd = &cobra.Command{
-	Use:   "update [EXECUTOR] [STATUS]",
+	Use:   "update [ADDRESS] [STATUS]",
 	Short: "Update the status of a TODO item (PENDING, ACTIVE, BLOCKED)",
-	Args:  cobra.ExactArgs(2),
+	Long: `Change the status of an existing TODO item.
+Allowed values: PENDING, ACTIVE
+BLOCKED is auto-calculated from Depends_On — not manually settable.
+Use 'loadstar todo done' to mark as COMPLETED.
+
+Examples:
+  loadstar todo update W://root/cli/cmd_log ACTIVE
+  loadstar todo update W://root/cli/cmd_log PENDING`,
+	Args: cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		executor := args[0]
+		address := args[0]
 		newStatus := strings.ToUpper(args[1])
 
 		if !allowedUpdateStatuses[newStatus] {
-			fmt.Fprintf(os.Stderr, "error: invalid status %q — allowed: PENDING, ACTIVE, BLOCKED\n", newStatus)
+			fmt.Fprintf(os.Stderr, "error: invalid status %q — allowed: PENDING, ACTIVE\n", newStatus)
 			os.Exit(1)
 		}
 
@@ -157,23 +191,23 @@ var todoUpdateCmd = &cobra.Command{
 		var originalRow string
 		var oldStatus string
 		for i, line := range lines {
-			if !isDataRow(line) || extractCol(line, 0) != executor {
+			if !isDataRow(line) || extractCol(line, 0) != address {
 				continue
 			}
 			found = true
 			originalRow = line
-			oldStatus = extractCol(line, 4)
+			oldStatus = extractCol(line, 3)
 			parts := strings.Split(line, "|")
-			if len(parts) >= 7 {
-				parts[5] = " " + newStatus + " "
+			if len(parts) >= 6 {
+				parts[4] = " " + newStatus + " "
 				lines[i] = strings.Join(parts, "|")
 			}
-			fmt.Printf("updated: %s  %s → %s\n", executor, oldStatus, newStatus)
+			fmt.Printf("updated: %s  %s → %s\n", address, oldStatus, newStatus)
 			break
 		}
 
 		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for executor: %s\n", executor)
+			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
 			os.Exit(1)
 		}
 
@@ -190,11 +224,16 @@ var todoUpdateCmd = &cobra.Command{
 }
 
 var todoDeleteCmd = &cobra.Command{
-	Use:   "delete [EXECUTOR]",
+	Use:   "delete [ADDRESS]",
 	Short: "Delete a TODO item and record it in TODO_HISTORY as DELETED",
-	Args:  cobra.ExactArgs(1),
+	Long: `Cancel and remove a TODO item.
+Use this for tasks that are cancelled or no longer needed.
+
+Examples:
+  loadstar todo delete W://root/cli/cmd_log`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		executor := args[0]
+		address := args[0]
 		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
 
 		content, err := os.ReadFile(todoPath)
@@ -208,7 +247,7 @@ var todoDeleteCmd = &cobra.Command{
 		var deletedRow string
 		var kept []string
 		for _, line := range lines {
-			if isDataRow(line) && extractCol(line, 0) == executor {
+			if isDataRow(line) && extractCol(line, 0) == address {
 				found = true
 				deletedRow = line
 				continue
@@ -217,7 +256,7 @@ var todoDeleteCmd = &cobra.Command{
 		}
 
 		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for executor: %s\n", executor)
+			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
 			os.Exit(1)
 		}
 
@@ -230,7 +269,7 @@ var todoDeleteCmd = &cobra.Command{
 		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
 		appendTodoHistory(histPath, deletedRow, "DELETED")
 
-		fmt.Printf("todo deleted: %s\n", executor)
+		fmt.Printf("todo deleted: %s\n", address)
 	},
 }
 
@@ -246,34 +285,36 @@ var todoListCmd = &cobra.Command{
 		}
 
 		lines := strings.Split(string(content), "\n")
-		completedSet := make(map[string]bool)
-
 		fmt.Println(todoHeader)
 		fmt.Println(todoSep)
 		for _, line := range lines {
 			if !isDataRow(line) {
 				continue
 			}
-			executor := extractCol(line, 0)
-			depends := extractCol(line, 5)
-			status := extractCol(line, 4)
+			depends := extractCol(line, 4)
+			status := extractCol(line, 3)
 			if status != "PENDING" && status != "ACTIVE" {
 				continue
 			}
 			displayLine := line
-			if depends != "-" && !completedSet[depends] {
+			if depends != "-" && depends != "" {
 				displayLine = strings.Replace(line, "| PENDING |", "| [BLOCKED] |", 1)
 			}
 			fmt.Println(displayLine)
-			_ = executor
 		}
 	},
 }
 
 var todoHistoryCmd = &cobra.Command{
-	Use:   "history [EXECUTOR]",
-	Short: "Show TODO_HISTORY. Optionally filter by executor address.",
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "history [ADDRESS]",
+	Short: "Show TODO_HISTORY. Optionally filter by address.",
+	Long: `Show all completed and deleted TODO events from TODO_HISTORY.
+Optionally filter by a specific address.
+
+Examples:
+  loadstar todo history
+  loadstar todo history W://root/cli/cmd_log`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
 		content, err := os.ReadFile(histPath)
@@ -287,8 +328,8 @@ var todoHistoryCmd = &cobra.Command{
 			filter = args[0]
 		}
 
-		histHeader := "| 실행 요소 (Executor) | 요청 요소 (Requester) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
-		histSep := "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+		histHeader := "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
+		histSep := "| :--- | :--- | :--- | :--- | :--- | :--- |"
 
 		lines := strings.Split(string(content), "\n")
 		printed := false
@@ -309,7 +350,7 @@ var todoHistoryCmd = &cobra.Command{
 
 		if !printed {
 			if filter != "" {
-				fmt.Printf("no history found for executor: %s\n", filter)
+				fmt.Printf("no history found for address: %s\n", filter)
 			} else {
 				fmt.Println("no TODO history found")
 			}
@@ -324,7 +365,7 @@ func init() {
 	todoCmd.AddCommand(todoListCmd)
 	todoCmd.AddCommand(todoUpdateCmd)
 	todoCmd.AddCommand(todoHistoryCmd)
-	todoAddCmd.Flags().String("depends", "", "Prerequisite executor address")
+	todoAddCmd.Flags().String("depends", "", "Prerequisite address")
 }
 
 // ensureTodoFile creates TODO_LIST.md if it doesn't exist.
@@ -337,30 +378,27 @@ func ensureTodoFile(path string) {
 }
 
 // appendTodoHistory appends an action record to TODO_HISTORY.md.
-// action: "DONE", "UPDATED(OLD→NEW)", "DELETED"
-// row: the original TODO_LIST data row at the time of the action.
 func appendTodoHistory(histPath, row, action string) {
 	_ = os.MkdirAll(filepath.Dir(histPath), 0755)
 
 	now := time.Now().Format("2006-01-02 15:04")
-	histHeader := "| 실행 요소 (Executor) | 요청 요소 (Requester) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
-	histSep := "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+	histHeader := "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
+	histSep := "| :--- | :--- | :--- | :--- | :--- | :--- |"
 
 	// Build history row from original row:
-	// original cols: Executor(0) Requester(1) Time(2) Summary(3) Status(4) Depends_On(5)
-	// history cols:  Executor    Requester    Time    Summary    Action     At           Depends_On
+	// original cols: Address(0) Time(1) Summary(2) Status(3) Depends_On(4)
+	// history cols:  Address    Time    Summary    Action     At           Depends_On
 	parts := strings.Split(row, "|")
 	var histRow string
-	if len(parts) >= 7 {
-		executor := strings.TrimSpace(parts[1])
-		requester := strings.TrimSpace(parts[2])
-		addedAt := strings.TrimSpace(parts[3])
-		summary := strings.TrimSpace(parts[4])
-		dependsOn := strings.TrimSpace(parts[6])
-		histRow = fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s |",
-			executor, requester, addedAt, summary, action, now, dependsOn)
+	if len(parts) >= 6 {
+		address := strings.TrimSpace(parts[1])
+		addedAt := strings.TrimSpace(parts[2])
+		summary := strings.TrimSpace(parts[3])
+		dependsOn := strings.TrimSpace(parts[5])
+		histRow = fmt.Sprintf("| %s | %s | %s | %s | %s | %s |",
+			address, addedAt, summary, action, now, dependsOn)
 	} else {
-		histRow = row // fallback
+		histRow = row
 	}
 
 	var content []byte
@@ -386,7 +424,7 @@ func isDataRow(line string) bool {
 	if strings.Contains(line, ":---") {
 		return false
 	}
-	if strings.Contains(line, "실행 요소") {
+	if strings.Contains(line, "주소 (Address)") || strings.Contains(line, "실행 요소") {
 		return false
 	}
 	return true
@@ -400,23 +438,4 @@ func extractCol(line string, n int) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[idx])
-}
-
-// reevaluateDependents marks dependents of completedExecutor as no longer blocked (no-op for now, handled in list display).
-func reevaluateDependents(lines []string, completedExecutor string) {
-	_ = lines
-	_ = completedExecutor
-}
-
-// appendExecutionHistory appends a completion record to the element's EXECUTION_HISTORY.
-func appendExecutionHistory(filePath, summary string) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return
-	}
-	now := time.Now().Format("2006-01-02 15:04")
-	re := regexp.MustCompile(`(- EXECUTION_HISTORY:\s*\[)(\s*)(\])`)
-	entry := fmt.Sprintf("\n    * %s: [COMPLETED] %s\n  ", now, summary)
-	updated := re.ReplaceAllString(string(content), "${1}"+entry+"${3}")
-	_ = os.WriteFile(filePath, []byte(updated), 0644)
 }

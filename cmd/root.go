@@ -21,7 +21,14 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "loadstar",
 	Short: "LOADSTAR - Project metadata and waypoint management CLI",
-	Long:  "LOADSTAR CLI for managing project metadata, waypoints, and git integration.",
+	Long: `LOADSTAR CLI for managing project metadata, waypoints, and git integration.
+
+Working directory:
+  loadstar searches for .loadstar/ starting from the current directory and
+  walking up the directory tree. Run it from anywhere inside your project.
+
+  If .loadstar/ is not found, a new one is auto-initialised in the current
+  directory — so run from inside your project root to avoid accidental init.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -55,10 +62,9 @@ func init() {
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(checkpointCmd)
-	rootCmd.AddCommand(historyCmd)
-	rootCmd.AddCommand(diffCmd)
-	rootCmd.AddCommand(rollbackCmd)
-	rootCmd.AddCommand(linkCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(todoCmd)
+	rootCmd.AddCommand(gitCmd)
+	rootCmd.AddCommand(logCmd)
+	rootCmd.AddCommand(findlogCmd)
 }

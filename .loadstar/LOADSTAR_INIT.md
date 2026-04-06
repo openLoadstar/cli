@@ -4,72 +4,80 @@
 > 작업 완료 후 갱신한다.
 
 ## 마지막 갱신
-- DATE: 2026-04-01
-- SESSION: loadstar log/findlog 구현, help 텍스트 전체 보강, GIT 디렉토리 통합
+- DATE: 2026-04-02
+- SESSION: CLI 프로토타입 완료 + 테스트 프로젝트 검증 + log 명령 개선 (ID 단축, --list, 페이징)
 
 ---
 
 ## 현재 TODO (PENDING)
 
-| Executor | Summary | Depends_On |
+| Address | Summary | Depends_On |
 |---|---|---|
-| W://root/cli/cmd_checkpoint | checkpoint SPEC 미구현 항목 완료 — GIT_INDEX 생성, CHANGE_LOG GIT_REF 역기입, GIT_INDEX 커밋 해시 역기입, HISTORY 임시 스냅샷 정리 | - |
-| W://root/cli/cmd_create | appendToContains multiline ITEMS 포맷 파싱 버그 수정 | - |
-| W://root/cli/meta_sync | 구현 완료 명령어 WayPoint/BlackBox 신규 생성 — cmd_git, cmd_log, cmd_init | - |
-| W://root/cli/cmd_history | 코드 검토 및 SPEC 대조 — 현재 HISTORY 파일 스캔 방식, SPEC은 CHANGE_LOG/GIT_REF 기반 | - |
-| W://root/cli/cmd_diff | 코드 검토 및 SPEC 대조 — 현재 HISTORY 스냅샷 직접 비교 방식, SPEC은 GIT_REF → git diff 방식 | - |
-| W://root/cli/cmd_rollback | 코드 검토 및 SPEC 대조 — 현재 HISTORY 스냅샷 복원 방식, SPEC은 GIT_REF → git checkout 방식 | - |
+| W://root/cli/cmd_create | appendToContains → appendToWaypoints/appendToChildren 리팩토링 후 multiline 파싱 버그 재검증 | - |
 
 > 전체 목록: `loadstar todo list`
 
 ---
 
-## 최근 작업 요약 (2026-04-01)
+## 최근 작업 요약 (2026-04-02)
 
-- `cmd/log.go` 신규 구현 — `loadstar log`, `loadstar findlog` 명령 완료
-- 전체 명령어 `--help` 예시 텍스트 보강
-- `C:\bono\MCP\GIT\loadstar_cli\` 단일 디렉토리로 통합 (AVCS 디렉토리 삭제)
-- `bin/loadstar.exe` 빌드 경로 변경 (구 `build/loadstar.exe`, `buildloadstar.exe`)
-- `W://root/cli/cmd_checkpoint` WayPoint/BlackBox SPEC 대조 갱신 — STATUS S_STB → S_PRG
+### 구조 대규모 리팩토링
+- **요소 포맷 단순화**:
+  - Map: IDENTITY + WAYPOINTS + COMMENT (인덱스만)
+  - WayPoint: IDENTITY + CONNECTIONS(PARENT/CHILDREN/REFERENCE/BLACKBOX) + TODO + ISSUE + COMMENT
+  - BlackBox: DESCRIPTION + CODE_MAP + TODO + ISSUE + COMMENT
+- **삭제된 디렉토리**: LINK/, SAVEPOINT/, HISTORY/
+- **삭제된 명령**: history, diff, rollback, link (git 직접 활용으로 대체)
+- **이름 변경**: .clionly/CHANGE_LOG → .clionly/LOG
+- **주소 체계**: M://, W://, B:// 3종류만 유지 (L://, S://, H:// 제거)
+- **todo 단순화**: REQUESTER/EXECUTOR → ADDRESS 단일 필드
+
+### checkpoint 단순화 (이전 세션에서 시작)
+- GIT_INDEX 폐지, 커밋 메시지에 변경 요소 자동 나열
+- `--auto` 플래그, `.clionly/MONITOR/checkpoint_needed.flag` 연동
+- `loadstar_monitor.exe` 별도 프로세스 신규 구현
+
+### Go 코드 변경 파일
+- `cmd/element.go` — 템플릿 전면 교체, appendToWaypoints/appendToChildren/parseParent 신규
+- `cmd/checkpoint.go` — history/diff/rollback 삭제, checkpoint만 유지
+- `cmd/nav.go` — link 삭제, show만 유지 (extractChildren 리팩토링)
+- `cmd/todo.go` — REQUESTER/EXECUTOR 제거, 2-arg add
+- `cmd/log.go` — CHANGE_LOG→LOG, LOG→COMMENT
+- `cmd/root.go` — 4개 명령 등록 제거
+- `internal/address/address.go` — L, S, H 타입 제거
+- `internal/storage/fs.go` — LINK/SAVEPOINT/HISTORY 디렉토리 제거
+
+### 메타데이터 마이그레이션
+- MAP 2개, WAYPOINT 15개, BLACKBOX 7개 전체 새 포맷 적용
+- .loadstar/LINK/, SAVEPOINT/, HISTORY/ 디렉토리 삭제
 
 ---
 
 ## 다음 권장 작업
 
-1. **`checkpoint` 미구현 항목** (W://root/cli/cmd_checkpoint)
-   - GIT_INDEX 파일 생성 (`GIT.[DATE].[SEQ].[UUID].md`)
-   - CHANGE_LOG 파일들에 `GIT_REF` 역기입
-   - Commit Hash → GIT_INDEX 역기입 후 추가 커밋
-   - HISTORY/ 임시 스냅샷 정리
-
-2. **`create` multiline ITEMS 파싱 버그**
-   - `appendToContains()` — multiline 포맷의 ITEMS 파싱 실패
-   - 관련 이슈: `loadstar findlog 0 5 --kind ISSUE`
-
----
-
-## 미구현 SPEC 항목 (저우선순위)
-
-| 명령어 | SPEC 섹션 | 비고 |
-|---|---|---|
-| `loadstar sync` | §8 | git log 분석 → 누락 GIT_INDEX/CHANGE_LOG 소급 생성 |
-| `loadstar monitor snapshot/diff/status/clean` | §14 | 파일 변경 추적 모니터링 |
+1. **UI 설계 및 구현** — WayPoint 흐름 시각화, 관리자 편집 기능, CLI 연동 정보 표시
+   - 기술 스택: 미정 (JavaFX, Web 등 논의 필요)
+   - 핵심: 프로젝트 방향성 확인 + 수정 + 진행 상황 모니터링
+2. **테스트 프로젝트** — `C:\bono\MCP\GIT\test_calc\` (Java/JavaFX 계산기, CLI 전체 워크플로우 검증 완료)
 
 ---
 
 ## 프로젝트 구조 참고
 
 ```
-.loadstar/
-├── MAP/          M:// 요소
-├── WAYPOINT/     W:// 요소
-├── BLACKBOX/     B:// 요소
-├── HISTORY/      자동 스냅샷
-├── LINK/         L:// 요소
-├── SAVEPOINT/    S:// 요소
-├── COMMON/       git_config.json 등
-└── .clionly/     ← AI 직접 접근 금지
-    ├── CHANGE_LOG/
-    ├── GIT_INDEX/
-    └── TODO/
+loadstar_cli/
+├── main.go                    # loadstar.exe 엔트리포인트
+├── cmd/monitor/main.go        # loadstar_monitor.exe 엔트리포인트
+├── bin/
+│   ├── loadstar.exe
+│   └── loadstar_monitor.exe
+└── .loadstar/
+    ├── MAP/
+    ├── WAYPOINT/
+    ├── BLACKBOX/
+    ├── COMMON/
+    └── .clionly/
+        ├── LOG/
+        ├── MONITOR/
+        └── TODO/
 ```

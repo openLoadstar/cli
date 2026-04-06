@@ -6,15 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const AvcsDir = ".loadstar"
 
 var loadstarDirs = []string{
-	"MAP", "WAYPOINT", "LINK", "SAVEPOINT",
-	"BLACKBOX", "HISTORY", "COMMON",
-	".clionly/CHANGE_LOG", ".clionly/GIT_INDEX", ".clionly/TODO",
+	"MAP", "WAYPOINT", "BLACKBOX", "COMMON",
+	".clionly/LOG", ".clionly/MONITOR", ".clionly/TODO",
 }
 
 // FindRoot walks up from the given directory looking for an existing .loadstar folder.
@@ -52,8 +50,7 @@ func Init(projectRoot string) error {
 
 	rootMap := filepath.Join(projectRoot, AvcsDir, "MAP", "root.md")
 	if !Exists(rootMap) {
-		today := time.Now().Format("2006-01-02")
-		content := "<MAP>\n## [ADDRESS] M://root\n## [STATUS] S_PRG\n\n### 1. IDENTITY\n- SUMMARY: Project root map\n- METADATA: [Ver: 1.0]\n- SYNCED_AT: " + today + "\n\n### 2. CONTAINS\n- ITEMS: []\n- PAYLOAD:\n\n### 3. CONNECTIONS\n- LINEAGE: [PARENT: NONE, CHILDREN: []]\n- LINKS: []\n\n### 4. RESOURCES\n- SAVEPOINTS: []\n\n### 5. TODO\n- REQUESTER: NONE\n- RESPONSE_STATUS: PENDING\n- TECH_SPEC:\n- EXECUTION_HISTORY: []\n</MAP>\n"
+		content := "<MAP>\n## [ADDRESS] M://root\n## [STATUS] S_PRG\n\n### IDENTITY\n- SUMMARY: Project root map\n\n### WAYPOINTS\n(없음)\n\n### COMMENT\n(없음)\n</MAP>\n"
 		if err := os.WriteFile(rootMap, []byte(content), 0644); err != nil {
 			return err
 		}

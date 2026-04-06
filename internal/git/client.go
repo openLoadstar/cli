@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -10,6 +11,57 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
+
+// StatusInfo holds the git integration status for display.
+type StatusInfo struct {
+	RemoteURL        string
+	Branch           string
+	LatestHash       string
+	UncommittedFiles int
+}
+
+// GetStatus returns the current git integration status.
+// Non-fatal errors (no repo, no HEAD) result in partial info rather than failure.
+func (c *Client) GetStatus() (StatusInfo, error) {
+	cfg, _ := LoadConfig(c.loadstarBase)
+	info := StatusInfo{
+		RemoteURL: cfg.RemoteURL,
+		Branch:    cfg.Branch,
+	}
+
+	repo, err := gogit.PlainOpen(c.repoPath)
+	if err != nil {
+		return info, nil
+	}
+
+	if ref, err := repo.Head(); err == nil {
+		info.LatestHash = ref.Hash().String()
+		info.Branch = ref.Name().Short()
+	}
+
+	if wt, err := repo.Worktree(); err == nil {
+		if st, err := wt.Status(); err == nil {
+			info.UncommittedFiles = len(st)
+		}
+	}
+
+	return info, nil
+}
+
+// UnsetRemote removes the git_config.json and deletes the "origin" remote from the repo.
+func (c *Client) UnsetRemote() error {
+	cfgPath := configPath(c.loadstarBase)
+	if err := os.Remove(cfgPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove git config: %w", err)
+	}
+
+	repo, err := gogit.PlainOpen(c.repoPath)
+	if err != nil {
+		return nil // no repo — nothing more to do
+	}
+	_ = repo.DeleteRemote(remoteName)
+	return nil
+}
 
 const remoteName = "origin"
 
@@ -40,14 +92,15 @@ func (c *Client) Init() error {
 	return nil
 }
 
-// SetRemote saves remote URL, branch, author info to git_config.json and
-// registers the remote in the git repository.
-func (c *Client) SetRemote(remoteURL, branch, userName, userEmail string) error {
+// SetRemote saves remote URL, branch, author info, and PAT to git_config.json
+// and registers the remote in the git repository.
+func (c *Client) SetRemote(remoteURL, branch, userName, userEmail, pat string) error {
 	cfg := Config{
 		RemoteURL: remoteURL,
 		Branch:    branch,
 		UserName:  userName,
 		UserEmail: userEmail,
+		PAT:       pat,
 	}
 	if err := SaveConfig(c.loadstarBase, cfg); err != nil {
 		return err
@@ -68,6 +121,36 @@ func (c *Client) SetRemote(remoteURL, branch, userName, userEmail string) error 
 		return fmt.Errorf("set remote: %w", err)
 	}
 	return nil
+}
+
+// ChangedLoadstarFiles returns a list of .loadstar/ files that have uncommitted changes.
+// Each path is relative to the repo root (e.g. ".loadstar/WAYPOINT/root.cli.cmd_create.md").
+func (c *Client) ChangedLoadstarFiles() ([]string, error) {
+	repo, err := gogit.PlainOpen(c.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("worktree: %w", err)
+	}
+
+	st, err := wt.Status()
+	if err != nil {
+		return nil, fmt.Errorf("status: %w", err)
+	}
+
+	var files []string
+	for path, s := range st {
+		if s.Worktree == gogit.Unmodified && s.Staging == gogit.Unmodified {
+			continue
+		}
+		if len(path) > len(".loadstar/") && path[:len(".loadstar/")] == ".loadstar/" {
+			files = append(files, path)
+		}
+	}
+	return files, nil
 }
 
 // Commit stages all changes under .loadstar/ and creates a commit.
@@ -125,7 +208,7 @@ func (c *Client) Push() error {
 		return fmt.Errorf("no remote configured — run `loadstar init --remote <URL>` first")
 	}
 
-	token := Token()
+	token := Token(cfg)
 	if token == "" {
 		return fmt.Errorf("LOADSTAR_GIT_TOKEN environment variable is not set")
 	}

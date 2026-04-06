@@ -76,4 +76,5 @@ func init() {
 	initCmd.Flags().String("branch", "main", "Branch to push to (default: main)")
 	initCmd.Flags().String("user", "", "Git author name")
 	initCmd.Flags().String("email", "", "Git author email")
+	initCmd.Flags().String("token", "", "Personal Access Token for push authentication")
 }

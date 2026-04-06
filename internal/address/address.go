@@ -8,7 +8,7 @@ import (
 
 // Address represents a parsed LOADSTAR URI (e.g. W://root/dev/auth)
 type Address struct {
-	Type string // M, W, L, S, H, B
+	Type string // M, W, B
 	Path string // root/dev/auth
 	ID   string // auth
 }
@@ -38,8 +38,5 @@ func (a *Address) ToFilePath(baseDir string) string {
 var typeDirMap = map[string]string{
 	"M": "MAP",
 	"W": "WAYPOINT",
-	"L": "LINK",
-	"S": "SAVEPOINT",
-	"H": "HISTORY",
 	"B": "BLACKBOX",
 }

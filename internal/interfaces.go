@@ -13,4 +13,5 @@ type Storage interface {
 type GitClient interface {
 	Commit(message string) (string, error)
 	LatestHash() (string, error)
+	ChangedLoadstarFiles() ([]string, error)
 }
