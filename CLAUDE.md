@@ -42,24 +42,31 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 - **Map**: IDENTITY, WAYPOINTS, COMMENT (인덱스 역할만)
 - **WayPoint**: IDENTITY, CONNECTIONS (PARENT/CHILDREN/REFERENCE), TODO, ISSUE, COMMENT
 
+### 작업 착수 규칙 (필수)
+1. **코드 수정 전**: 대상 WayPoint의 TECH_SPEC에 작업 항목을 `[ ]`로 추가
+2. **코드 수정 완료 후**: `[x] YYYY-MM-DD 항목명`으로 체크
+3. **WP 전체 완료 시**: STATUS를 `S_PRG → S_STB`로 변경
+4. 항목 추가 없이 코드 수정 착수 금지 — Hook이 리마인드함
+
 ### 작업 진입 순서
 | 작업 유형 | 진입 순서 |
 |---|---|
-| 기능 구현 / 설계 변경 / 영향 범위 불명확 | MAP → WayPoint → 코드 |
-| 명확한 버그 수정 / 단일 함수 수정 | grep → 코드 → WayPoint 사후 갱신 |
+| 기능 구현 / 설계 변경 / 영향 범위 불명확 | MAP → WayPoint TECH_SPEC 항목 등록 → 코드 |
+| 명확한 버그 수정 / 단일 함수 수정 | grep → 코드 → WayPoint TECH_SPEC 사후 등록 + 체크 |
 
-### 메타 동기화 (Hook 기반)
-- `.claude/hooks/loadstar-drift-check.sh`가 소스코드 편집 시 리마인더 출력
-- 리마인더를 보면 관련 WayPoint TODO 체크박스 갱신 여부 확인
+### 메타 동기화
+- **Hook**: `.claude/hooks/loadstar-drift-check.sh`가 소스코드 편집 시 TECH_SPEC 등록/갱신 리마인더 출력
+- **todo sync**: `loadstar todo sync`로 WP STATUS 기반 TODO_LIST 자동 동기화
 
 ---
 
 ## 구현 완료 명령어
 
-`init` · `show` · `todo (add/list/update/done/delete/history)` · `log` · `findlog` · `validate`
+`init` · `show` · `todo (sync/list/history)` · `log` · `findlog` · `validate`
 
 ## 삭제된 명령어
 
+`todo add/update/done/delete` — sync가 WP STATUS 기반 자동 관리 (2026-04-08)
 `create` · `edit` · `delete` — AI 직접 편집 + UI로 대체 (2026-04-08)
 `checkpoint` · `git (set/status/unset)` — git 직접 사용으로 대체 (2026-04-08)
 `history` · `diff` · `rollback` · `link` — git 직접 활용으로 대체 (2026-04-02)

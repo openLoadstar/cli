@@ -39,7 +39,7 @@ func FindRoot(startDir string) (string, error) {
 }
 
 // Init creates the .loadstar directory structure under projectRoot,
-// and writes an initial M://root Map file.
+// writes an initial M://root Map file, and sets up .claude/ hooks.
 func Init(projectRoot string) error {
 	for _, d := range loadstarDirs {
 		path := filepath.Join(projectRoot, AvcsDir, d)
@@ -55,6 +55,81 @@ func Init(projectRoot string) error {
 			return err
 		}
 	}
+
+	// Create .claude/ hooks for meta-sync reminders
+	if err := initClaudeHooks(projectRoot); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// initClaudeHooks creates .claude/settings.json and hooks/loadstar-drift-check.sh
+// if they don't already exist.
+func initClaudeHooks(projectRoot string) error {
+	hooksDir := filepath.Join(projectRoot, ".claude", "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return err
+	}
+
+	settingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
+	if !Exists(settingsPath) {
+		settings := `{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/loadstar-drift-check.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+		if err := os.WriteFile(settingsPath, []byte(settings), 0644); err != nil {
+			return err
+		}
+	}
+
+	hookPath := filepath.Join(hooksDir, "loadstar-drift-check.sh")
+	if !Exists(hookPath) {
+		hook := `#!/bin/bash
+# loadstar-drift-check.sh
+# PostToolUse hook: 소스코드 수정 시 LOADSTAR 메타데이터 갱신 리마인더
+
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+
+if [[ -z "$FILE_PATH" ]]; then
+  exit 0
+fi
+
+if [[ "$FILE_PATH" == *".loadstar"* || "$FILE_PATH" == *".claude"* ]]; then
+  exit 0
+fi
+
+BASENAME=$(basename "$FILE_PATH")
+case "$BASENAME" in
+  go.mod|go.sum|pom.xml|package.json|package-lock.json|*.json|*.yaml|*.yml|*.toml|*.md|*.txt|*.css|LICENSE|.gitignore)
+    exit 0
+    ;;
+esac
+
+echo "[LOADSTAR] 소스 파일 수정됨: $FILE_PATH"
+echo "[LOADSTAR] 작업 착수 전 대상 WayPoint TECH_SPEC에 작업 항목을 [ ]로 등록했는지 확인하세요."
+echo "[LOADSTAR] 작업 완료 후 [x] YYYY-MM-DD로 체크하고, 필요 시 STATUS를 갱신하세요."
+
+exit 0
+`
+		if err := os.WriteFile(hookPath, []byte(hook), 0755); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

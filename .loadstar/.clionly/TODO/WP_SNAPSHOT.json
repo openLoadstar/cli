@@ -1,0 +1,37 @@
+{
+  "W://root/cli/cmd_log": {
+    "modTime": "2026-04-08T14:46:29+09:00",
+    "size": 742,
+    "status": "S_STB"
+  },
+  "W://root/cli/cmd_show": {
+    "modTime": "2026-04-08T10:36:50+09:00",
+    "size": 801,
+    "status": "S_STB"
+  },
+  "W://root/cli/cmd_todo": {
+    "modTime": "2026-04-08T14:36:36+09:00",
+    "size": 2103,
+    "status": "S_STB"
+  },
+  "W://root/cli/cmd_validate": {
+    "modTime": "2026-04-08T10:36:58+09:00",
+    "size": 750,
+    "status": "S_STB"
+  },
+  "W://root/cli/internal_infra": {
+    "modTime": "2026-04-08T15:04:57+09:00",
+    "size": 1193,
+    "status": "S_STB"
+  },
+  "W://root/cli/test_nav": {
+    "modTime": "2026-04-08T14:46:42+09:00",
+    "size": 957,
+    "status": "S_IDL"
+  },
+  "W://root/cli/test_todo": {
+    "modTime": "2026-04-08T14:46:57+09:00",
+    "size": 1618,
+    "status": "S_STB"
+  }
+}

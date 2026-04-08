@@ -1,418 +1,567 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
 const todoListFile = ".clionly/TODO/TODO_LIST.md"
-const todoHistoryFile = ".clionly/TODO/TODO_HISTORY.md"
+const wpSnapshotFile = ".clionly/TODO/WP_SNAPSHOT.json"
 
-var todoHeader = "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 상태 (Status) | 선행 조건 (Depends_On) |"
-var todoSep = "| :--- | :--- | :--- | :--- | :--- |"
+// wpSnapshot holds cached file info for change detection.
+type wpSnapshot struct {
+	ModTime string `json:"modTime"`
+	Size    int64  `json:"size"`
+	Status  string `json:"status"`
+}
+
+// todoItem represents a single TODO list entry.
+type todoItem struct {
+	Address string
+	Status  string // PENDING, ACTIVE, [BLOCKED]
+	Summary string
+}
 
 var todoCmd = &cobra.Command{
 	Use:   "todo",
-	Short: "Manage TODO items in TODO_LIST",
-	Long: `Manage the project TODO list stored in .loadstar/.clionly/TODO/TODO_LIST.md.
-Do NOT edit that file directly — always use these commands.
+	Short: "Manage TODO items via WayPoint sync",
+	Long: `Manage the project TODO list by syncing with WayPoint STATUS.
 
 Subcommands:
-  add      Add a new TODO item (status: PENDING)
-  list     Show current PENDING/ACTIVE items (BLOCKED auto-detected)
-  update   Change status to PENDING / ACTIVE / BLOCKED
-  done     Mark as completed and move to TODO_HISTORY
-  delete   Remove without completion record
-  history  Show TODO_HISTORY (all completed/deleted events)
+  sync     Scan WayPoint files and update TODO_LIST
+  list     Show current PENDING/ACTIVE/BLOCKED items
+  history  Show completed TECH_SPEC items from WayPoints
 
-Quick start:
-  loadstar todo add W://root/cli/cmd_log "log/findlog 구현"
+Examples:
+  loadstar todo sync
+  loadstar todo sync W://root/cli/cmd_log
   loadstar todo list
-  loadstar todo update W://root/cli/cmd_log ACTIVE
-  loadstar todo done W://root/cli/cmd_log`,
+  loadstar todo history
+  loadstar todo history M://root/cli`,
 }
 
-var todoAddCmd = &cobra.Command{
-	Use:   "add [ADDRESS] [SUMMARY]",
-	Short: "Add a new TODO item",
-	Long: `Add a new TODO item to the project TODO list (status: PENDING).
+// ===== sync =====
 
-  ADDRESS  W:// address of the WayPoint for this task
-  SUMMARY  One-line description of the task
+var todoSyncCmd = &cobra.Command{
+	Use:   "sync [ADDRESS]",
+	Short: "Sync TODO_LIST with WayPoint STATUS",
+	Long: `Scan WayPoint files and update TODO_LIST based on their STATUS.
 
-Examples:
-  loadstar todo add W://root/cli/cmd_log "log/findlog 구현"
-  loadstar todo add W://root/cli/cmd_sync "sync 구현" --depends W://root/cli/cmd_log`,
-	Args: cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		depends, _ := cmd.Flags().GetString("depends")
-		if depends == "" {
-			depends = "-"
-		}
-		address, summary := args[0], args[1]
-		now := time.Now().Format("2006-01-02 15:04")
-
-		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
-		ensureTodoFile(todoPath)
-
-		content, err := os.ReadFile(todoPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not read TODO list: %v\n", err)
-			os.Exit(1)
-		}
-
-		newRow := fmt.Sprintf("| %s | %s | %s | PENDING | %s |",
-			address, now, summary, depends)
-
-		lines := strings.Split(string(content), "\n")
-		insertIdx := -1
-		for i, line := range lines {
-			if strings.HasPrefix(line, "| :---") {
-				insertIdx = i + 1
-				break
-			}
-		}
-		if insertIdx < 0 || insertIdx > len(lines) {
-			lines = append(lines, newRow)
-		} else {
-			lines = append(lines[:insertIdx], append([]string{newRow}, lines[insertIdx:]...)...)
-		}
-
-		if err := os.WriteFile(todoPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not write TODO list: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("todo added: %s\n", address)
-	},
-}
-
-var todoDoneCmd = &cobra.Command{
-	Use:   "done [ADDRESS]",
-	Short: "Mark a TODO item as completed and move to TODO_HISTORY",
-	Long: `Mark a TODO item as COMPLETED.
-The item is removed from TODO_LIST and recorded in TODO_HISTORY.
+  Without arguments: scan all WayPoints via MAP traversal.
+  With ADDRESS: sync a single WayPoint.
 
 Examples:
-  loadstar todo done W://root/cli/cmd_log`,
-	Args: cobra.ExactArgs(1),
+  loadstar todo sync
+  loadstar todo sync W://root/cli/cmd_log`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		address := args[0]
-		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
+		loadstarBase := fs.AvcsPath("")
 
-		content, err := os.ReadFile(todoPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not read TODO list: %v\n", err)
-			os.Exit(1)
+		if len(args) == 1 {
+			// Single WP sync
+			syncSingleWP(loadstarBase, args[0])
+			return
 		}
 
-		lines := strings.Split(string(content), "\n")
-		found := false
-		var doneRow string
-		var kept []string
-		for _, line := range lines {
-			if isDataRow(line) && extractCol(line, 0) == address {
-				found = true
-				doneRow = line
+		// Full sync: collect all WP addresses via MAP traversal
+		wpAddrs := collectAllWaypoints(loadstarBase)
+		if len(wpAddrs) == 0 {
+			fmt.Println("no waypoints found")
+			return
+		}
+
+		snapshot := loadSnapshot(loadstarBase)
+		items := loadTodoList(loadstarBase)
+		itemMap := make(map[string]*todoItem)
+		for i := range items {
+			itemMap[items[i].Address] = &items[i]
+		}
+
+		// Track which addresses are still valid
+		validAddrs := make(map[string]bool)
+		added, updated, removed := 0, 0, 0
+
+		for _, addr := range wpAddrs {
+			validAddrs[addr] = true
+			wpFile := addressToFilePath(loadstarBase, addr)
+
+			info, err := os.Stat(wpFile)
+			if err != nil {
 				continue
 			}
-			kept = append(kept, line)
-		}
 
-		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
-			os.Exit(1)
-		}
+			modTime := info.ModTime().Format(time.RFC3339)
+			size := info.Size()
 
-		// Clear Depends_On references to the completed address
-		for i, line := range kept {
-			if isDataRow(line) && extractCol(line, 4) == address {
-				parts := strings.Split(line, "|")
-				if len(parts) >= 6 {
-					parts[5] = " - "
-					kept[i] = strings.Join(parts, "|")
+			// Check if changed since last snapshot
+			cached, hasCached := snapshot[addr]
+			if hasCached && cached.ModTime == modTime && cached.Size == size {
+				continue // unchanged
+			}
+
+			// Read STATUS and SUMMARY from WP file
+			status, summary := readWPStatusAndSummary(wpFile)
+
+			// Update snapshot
+			snapshot[addr] = wpSnapshot{ModTime: modTime, Size: size, Status: status}
+
+			todoStatus := wpStatusToTodoStatus(status)
+
+			if todoStatus == "" {
+				// S_STB → remove from TODO
+				if _, exists := itemMap[addr]; exists {
+					delete(itemMap, addr)
+					removed++
+				}
+			} else {
+				if existing, exists := itemMap[addr]; exists {
+					if existing.Status != todoStatus || existing.Summary != summary {
+						existing.Status = todoStatus
+						existing.Summary = summary
+						updated++
+					}
+				} else {
+					itemMap[addr] = &todoItem{Address: addr, Status: todoStatus, Summary: summary}
+					added++
 				}
 			}
 		}
 
-		// Remove from TODO_LIST
-		if err := os.WriteFile(todoPath, []byte(strings.Join(kept, "\n")), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not write TODO list: %v\n", err)
-			os.Exit(1)
+		// Remove TODO entries for deleted WPs
+		for addr := range itemMap {
+			if !validAddrs[addr] {
+				delete(itemMap, addr)
+				removed++
+			}
 		}
 
-		// Append to TODO_HISTORY
-		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
-		appendTodoHistory(histPath, doneRow, "DONE")
+		// Apply BLOCKED detection via REFERENCE
+		applyBlocked(loadstarBase, itemMap)
 
-		fmt.Printf("todo done: %s\n", address)
+		// Rebuild items list
+		var result []todoItem
+		for _, item := range itemMap {
+			result = append(result, *item)
+		}
+
+		saveTodoList(loadstarBase, result)
+		saveSnapshot(loadstarBase, snapshot)
+
+		fmt.Printf("sync complete: %d added, %d updated, %d removed (%d total)\n",
+			added, updated, removed, len(result))
 	},
 }
 
-// allowedUpdateStatuses lists the status values that todo update accepts.
-var allowedUpdateStatuses = map[string]bool{
-	"PENDING": true, "ACTIVE": true,
+func syncSingleWP(loadstarBase, addr string) {
+	wpFile := addressToFilePath(loadstarBase, addr)
+	if _, err := os.Stat(wpFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: WayPoint not found: %s\n", addr)
+		os.Exit(1)
+	}
+
+	snapshot := loadSnapshot(loadstarBase)
+	items := loadTodoList(loadstarBase)
+	itemMap := make(map[string]*todoItem)
+	for i := range items {
+		itemMap[items[i].Address] = &items[i]
+	}
+
+	info, _ := os.Stat(wpFile)
+	status, summary := readWPStatusAndSummary(wpFile)
+	snapshot[addr] = wpSnapshot{
+		ModTime: info.ModTime().Format(time.RFC3339),
+		Size:    info.Size(),
+		Status:  status,
+	}
+
+	todoStatus := wpStatusToTodoStatus(status)
+	if todoStatus == "" {
+		delete(itemMap, addr)
+	} else {
+		itemMap[addr] = &todoItem{Address: addr, Status: todoStatus, Summary: summary}
+	}
+
+	applyBlocked(loadstarBase, itemMap)
+
+	var result []todoItem
+	for _, item := range itemMap {
+		result = append(result, *item)
+	}
+
+	saveTodoList(loadstarBase, result)
+	saveSnapshot(loadstarBase, snapshot)
+
+	fmt.Printf("synced: %s [%s]\n", addr, status)
 }
 
-var todoUpdateCmd = &cobra.Command{
-	Use:   "update [ADDRESS] [STATUS]",
-	Short: "Update the status of a TODO item (PENDING, ACTIVE, BLOCKED)",
-	Long: `Change the status of an existing TODO item.
-Allowed values: PENDING, ACTIVE
-BLOCKED is auto-calculated from Depends_On — not manually settable.
-Use 'loadstar todo done' to mark as COMPLETED.
-
-Examples:
-  loadstar todo update W://root/cli/cmd_log ACTIVE
-  loadstar todo update W://root/cli/cmd_log PENDING`,
-	Args: cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		address := args[0]
-		newStatus := strings.ToUpper(args[1])
-
-		if !allowedUpdateStatuses[newStatus] {
-			fmt.Fprintf(os.Stderr, "error: invalid status %q — allowed: PENDING, ACTIVE\n", newStatus)
-			os.Exit(1)
-		}
-
-		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
-		content, err := os.ReadFile(todoPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not read TODO list: %v\n", err)
-			os.Exit(1)
-		}
-
-		lines := strings.Split(string(content), "\n")
-		found := false
-		var originalRow string
-		var oldStatus string
-		for i, line := range lines {
-			if !isDataRow(line) || extractCol(line, 0) != address {
-				continue
-			}
-			found = true
-			originalRow = line
-			oldStatus = extractCol(line, 3)
-			parts := strings.Split(line, "|")
-			if len(parts) >= 6 {
-				parts[4] = " " + newStatus + " "
-				lines[i] = strings.Join(parts, "|")
-			}
-			fmt.Printf("updated: %s  %s → %s\n", address, oldStatus, newStatus)
-			break
-		}
-
-		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
-			os.Exit(1)
-		}
-
-		if err := os.WriteFile(todoPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not write TODO list: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Append to TODO_HISTORY
-		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
-		action := fmt.Sprintf("UPDATED(%s→%s)", oldStatus, newStatus)
-		appendTodoHistory(histPath, originalRow, action)
-	},
-}
-
-var todoDeleteCmd = &cobra.Command{
-	Use:   "delete [ADDRESS]",
-	Short: "Delete a TODO item and record it in TODO_HISTORY as DELETED",
-	Long: `Cancel and remove a TODO item.
-Use this for tasks that are cancelled or no longer needed.
-
-Examples:
-  loadstar todo delete W://root/cli/cmd_log`,
-	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		address := args[0]
-		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
-
-		content, err := os.ReadFile(todoPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not read TODO list: %v\n", err)
-			os.Exit(1)
-		}
-
-		lines := strings.Split(string(content), "\n")
-		found := false
-		var deletedRow string
-		var kept []string
-		for _, line := range lines {
-			if isDataRow(line) && extractCol(line, 0) == address {
-				found = true
-				deletedRow = line
-				continue
-			}
-			kept = append(kept, line)
-		}
-
-		if !found {
-			fmt.Fprintf(os.Stderr, "error: TODO item not found for address: %s\n", address)
-			os.Exit(1)
-		}
-
-		if err := os.WriteFile(todoPath, []byte(strings.Join(kept, "\n")), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: could not write TODO list: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Append to TODO_HISTORY
-		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
-		appendTodoHistory(histPath, deletedRow, "DELETED")
-
-		fmt.Printf("todo deleted: %s\n", address)
-	},
-}
+// ===== list =====
 
 var todoListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all PENDING/ACTIVE TODO items",
 	Run: func(cmd *cobra.Command, args []string) {
-		todoPath := filepath.Join(fs.AvcsPath(""), todoListFile)
-		content, err := os.ReadFile(todoPath)
-		if err != nil {
-			fmt.Println("no TODO list found")
+		loadstarBase := fs.AvcsPath("")
+		items := loadTodoList(loadstarBase)
+
+		if len(items) == 0 {
+			fmt.Println("no TODO items")
 			return
 		}
 
-		lines := strings.Split(string(content), "\n")
-		fmt.Println(todoHeader)
-		fmt.Println(todoSep)
-		for _, line := range lines {
-			if !isDataRow(line) {
-				continue
+		// Sort: ACTIVE first, then PENDING, then BLOCKED
+		statusOrder := map[string]int{"ACTIVE": 0, "PENDING": 1, "[BLOCKED]": 2}
+		sort.Slice(items, func(i, j int) bool {
+			oi, oj := statusOrder[items[i].Status], statusOrder[items[j].Status]
+			if oi != oj {
+				return oi < oj
 			}
-			depends := extractCol(line, 4)
-			status := extractCol(line, 3)
-			if status != "PENDING" && status != "ACTIVE" {
-				continue
+			return items[i].Address < items[j].Address
+		})
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ADDRESS\tSTATUS\tSUMMARY")
+		fmt.Fprintln(w, "-------\t------\t-------")
+		for _, item := range items {
+			summary := item.Summary
+			if len(summary) > 60 {
+				summary = summary[:60] + "..."
 			}
-			displayLine := line
-			if depends != "-" && depends != "" {
-				displayLine = strings.Replace(line, "| PENDING |", "| [BLOCKED] |", 1)
-			}
-			fmt.Println(displayLine)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Address, item.Status, summary)
 		}
+		w.Flush()
+		fmt.Printf("\n%d item(s)\n", len(items))
 	},
 }
 
+// ===== history =====
+
 var todoHistoryCmd = &cobra.Command{
-	Use:   "history [ADDRESS]",
-	Short: "Show TODO_HISTORY. Optionally filter by address.",
-	Long: `Show all completed and deleted TODO events from TODO_HISTORY.
-Optionally filter by a specific address.
+	Use:   "history [MAP_ADDRESS]",
+	Short: "Show completed TECH_SPEC items from WayPoints",
+	Long: `Collect completed TECH_SPEC items ([x] YYYY-MM-DD ...) from WayPoints
+and display them sorted newest-first.
+
+Without arguments: scan all WayPoints.
+With MAP_ADDRESS: scan only WayPoints under that Map.
 
 Examples:
   loadstar todo history
-  loadstar todo history W://root/cli/cmd_log`,
+  loadstar todo history M://root/cli`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		histPath := filepath.Join(fs.AvcsPath(""), todoHistoryFile)
-		content, err := os.ReadFile(histPath)
-		if err != nil {
-			fmt.Println("no TODO history found")
+		loadstarBase := fs.AvcsPath("")
+
+		var wpAddrs []string
+		if len(args) == 1 {
+			wpAddrs = collectWaypointsUnderMap(loadstarBase, args[0])
+		} else {
+			wpAddrs = collectAllWaypoints(loadstarBase)
+		}
+
+		type histEntry struct {
+			Address string
+			Date    string
+			Item    string
+		}
+
+		doneRe := regexp.MustCompile(`^\s*-\s*\[x\]\s*(\d{4}-\d{2}-\d{2})\s+(.+)$`)
+		var entries []histEntry
+
+		for _, addr := range wpAddrs {
+			wpFile := addressToFilePath(loadstarBase, addr)
+			data, err := os.ReadFile(wpFile)
+			if err != nil {
+				continue
+			}
+
+			inTodo := false
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "### TODO" || trimmed == "- TECH_SPEC:" {
+					inTodo = true
+					continue
+				}
+				if inTodo && strings.HasPrefix(trimmed, "###") {
+					inTodo = false
+					continue
+				}
+				if inTodo {
+					m := doneRe.FindStringSubmatch(line)
+					if m != nil {
+						entries = append(entries, histEntry{Address: addr, Date: m[1], Item: m[2]})
+					}
+				}
+			}
+		}
+
+		if len(entries) == 0 {
+			fmt.Println("no completed items found")
 			return
 		}
 
-		filter := ""
-		if len(args) == 1 {
-			filter = args[0]
-		}
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Date > entries[j].Date
+		})
 
-		histHeader := "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
-		histSep := "| :--- | :--- | :--- | :--- | :--- | :--- |"
-
-		lines := strings.Split(string(content), "\n")
-		printed := false
-		for _, line := range lines {
-			if !isDataRow(line) {
-				continue
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ADDRESS\tDATE\tITEM")
+		fmt.Fprintln(w, "-------\t----\t----")
+		for _, e := range entries {
+			item := e.Item
+			if len(item) > 60 {
+				item = item[:60] + "..."
 			}
-			if filter != "" && extractCol(line, 0) != filter {
-				continue
-			}
-			if !printed {
-				fmt.Println(histHeader)
-				fmt.Println(histSep)
-				printed = true
-			}
-			fmt.Println(line)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", e.Address, e.Date, item)
 		}
-
-		if !printed {
-			if filter != "" {
-				fmt.Printf("no history found for address: %s\n", filter)
-			} else {
-				fmt.Println("no TODO history found")
-			}
-		}
+		w.Flush()
+		fmt.Printf("\n%d completed item(s)\n", len(entries))
 	},
 }
 
 func init() {
-	todoCmd.AddCommand(todoAddCmd)
-	todoCmd.AddCommand(todoDoneCmd)
-	todoCmd.AddCommand(todoDeleteCmd)
+	todoCmd.AddCommand(todoSyncCmd)
 	todoCmd.AddCommand(todoListCmd)
-	todoCmd.AddCommand(todoUpdateCmd)
 	todoCmd.AddCommand(todoHistoryCmd)
-	todoAddCmd.Flags().String("depends", "", "Prerequisite address")
 }
 
-// ensureTodoFile creates TODO_LIST.md if it doesn't exist.
-func ensureTodoFile(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		_ = os.MkdirAll(filepath.Dir(path), 0755)
-		initial := todoHeader + "\n" + todoSep + "\n"
-		_ = os.WriteFile(path, []byte(initial), 0644)
+// ===== helpers =====
+
+func wpStatusToTodoStatus(wpStatus string) string {
+	switch wpStatus {
+	case "S_IDL":
+		return "PENDING"
+	case "S_PRG":
+		return "ACTIVE"
+	case "S_ERR", "S_REV":
+		return "ACTIVE"
+	default: // S_STB or unknown
+		return ""
 	}
 }
 
-// appendTodoHistory appends an action record to TODO_HISTORY.md.
-func appendTodoHistory(histPath, row, action string) {
-	_ = os.MkdirAll(filepath.Dir(histPath), 0755)
-
-	now := time.Now().Format("2006-01-02 15:04")
-	histHeader := "| 주소 (Address) | 발생 시간 (Time) | 작업 요약 (Summary) | 액션 (Action) | 처리 시각 (At) | 선행 조건 (Depends_On) |"
-	histSep := "| :--- | :--- | :--- | :--- | :--- | :--- |"
-
-	// Build history row from original row:
-	// original cols: Address(0) Time(1) Summary(2) Status(3) Depends_On(4)
-	// history cols:  Address    Time    Summary    Action     At           Depends_On
-	parts := strings.Split(row, "|")
-	var histRow string
-	if len(parts) >= 6 {
-		address := strings.TrimSpace(parts[1])
-		addedAt := strings.TrimSpace(parts[2])
-		summary := strings.TrimSpace(parts[3])
-		dependsOn := strings.TrimSpace(parts[5])
-		histRow = fmt.Sprintf("| %s | %s | %s | %s | %s | %s |",
-			address, addedAt, summary, action, now, dependsOn)
+func addressToFilePath(loadstarBase, addr string) string {
+	var typeDir, pathPart string
+	if strings.HasPrefix(addr, "M://") {
+		typeDir = "MAP"
+		pathPart = addr[4:]
+	} else if strings.HasPrefix(addr, "W://") {
+		typeDir = "WAYPOINT"
+		pathPart = addr[4:]
 	} else {
-		histRow = row
+		return ""
 	}
+	dotName := strings.ReplaceAll(pathPart, "/", ".")
+	return filepath.Join(loadstarBase, typeDir, dotName+".md")
+}
 
-	var content []byte
-	if _, err := os.Stat(histPath); os.IsNotExist(err) {
-		content = []byte(histHeader + "\n" + histSep + "\n" + histRow + "\n")
+func readWPStatusAndSummary(filePath string) (status, summary string) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "?", ""
+	}
+	statusRe := regexp.MustCompile(`##\s*\[STATUS\]\s*(\S+)`)
+	summaryRe := regexp.MustCompile(`(?m)^-\s*SUMMARY:\s*(.*)$`)
+
+	if m := statusRe.FindStringSubmatch(string(data)); len(m) >= 2 {
+		status = m[1]
 	} else {
-		existing, err := os.ReadFile(histPath)
-		if err != nil {
-			return
+		status = "?"
+	}
+	if m := summaryRe.FindStringSubmatch(string(data)); len(m) >= 2 {
+		summary = strings.TrimSpace(m[1])
+	}
+	return
+}
+
+// collectAllWaypoints traverses MAP files to collect all WP addresses.
+func collectAllWaypoints(loadstarBase string) []string {
+	var result []string
+	mapDir := filepath.Join(loadstarBase, "MAP")
+	files, err := os.ReadDir(mapDir)
+	if err != nil {
+		return nil
+	}
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
+			continue
 		}
-		content = []byte(string(existing) + histRow + "\n")
+		data, err := os.ReadFile(filepath.Join(mapDir, f.Name()))
+		if err != nil {
+			continue
+		}
+		result = append(result, extractWaypointAddresses(string(data))...)
+	}
+	return result
+}
+
+// collectWaypointsUnderMap collects WP addresses from a specific Map and its sub-Maps.
+func collectWaypointsUnderMap(loadstarBase, mapAddr string) []string {
+	mapFile := addressToFilePath(loadstarBase, mapAddr)
+	data, err := os.ReadFile(mapFile)
+	if err != nil {
+		return nil
 	}
 
-	_ = os.WriteFile(histPath, content, 0644)
+	var result []string
+	inWP := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "### WAYPOINTS" {
+			inWP = true
+			continue
+		}
+		if inWP && strings.HasPrefix(trimmed, "###") {
+			break
+		}
+		if inWP && strings.HasPrefix(trimmed, "- ") {
+			addr := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			if strings.HasPrefix(addr, "W://") {
+				result = append(result, addr)
+			} else if strings.HasPrefix(addr, "M://") {
+				// Recurse into sub-Map
+				result = append(result, collectWaypointsUnderMap(loadstarBase, addr)...)
+			}
+		}
+	}
+	return result
+}
+
+func extractWaypointAddresses(content string) []string {
+	var result []string
+	inWP := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "### WAYPOINTS" {
+			inWP = true
+			continue
+		}
+		if inWP && strings.HasPrefix(trimmed, "###") {
+			break
+		}
+		if inWP && strings.HasPrefix(trimmed, "- W://") {
+			addr := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			result = append(result, addr)
+		}
+	}
+	return result
+}
+
+// applyBlocked checks REFERENCE fields and marks items as [BLOCKED] if ref targets are not S_STB.
+func applyBlocked(loadstarBase string, itemMap map[string]*todoItem) {
+	for addr, item := range itemMap {
+		if item.Status == "" {
+			continue
+		}
+		wpFile := addressToFilePath(loadstarBase, addr)
+		data, err := os.ReadFile(wpFile)
+		if err != nil {
+			continue
+		}
+
+		refs := extractReferences(string(data))
+		blocked := false
+		for _, ref := range refs {
+			refFile := addressToFilePath(loadstarBase, ref)
+			refStatus, _ := readWPStatusAndSummary(refFile)
+			if refStatus != "S_STB" {
+				blocked = true
+				break
+			}
+		}
+
+		if blocked && item.Status != "[BLOCKED]" {
+			item.Status = "[BLOCKED]"
+		} else if !blocked && item.Status == "[BLOCKED]" {
+			// Un-block: revert to status based on WP
+			status, _ := readWPStatusAndSummary(wpFile)
+			item.Status = wpStatusToTodoStatus(status)
+		}
+	}
+}
+
+func extractReferences(content string) []string {
+	re := regexp.MustCompile(`(?m)^-\s*REFERENCE:\s*\[([^\]]*)\]`)
+	m := re.FindStringSubmatch(content)
+	if m == nil || strings.TrimSpace(m[1]) == "" {
+		return nil
+	}
+	var result []string
+	for _, ref := range strings.Split(m[1], ",") {
+		ref = strings.TrimSpace(ref)
+		if ref != "" && strings.Contains(ref, "://") {
+			result = append(result, ref)
+		}
+	}
+	return result
+}
+
+// ===== file I/O =====
+
+func loadSnapshot(loadstarBase string) map[string]wpSnapshot {
+	path := filepath.Join(loadstarBase, wpSnapshotFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[string]wpSnapshot)
+	}
+	var result map[string]wpSnapshot
+	if err := json.Unmarshal(data, &result); err != nil {
+		return make(map[string]wpSnapshot)
+	}
+	return result
+}
+
+func saveSnapshot(loadstarBase string, snapshot map[string]wpSnapshot) {
+	path := filepath.Join(loadstarBase, wpSnapshotFile)
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	data, _ := json.MarshalIndent(snapshot, "", "  ")
+	_ = os.WriteFile(path, data, 0644)
+}
+
+func loadTodoList(loadstarBase string) []todoItem {
+	path := filepath.Join(loadstarBase, todoListFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	var items []todoItem
+	for _, line := range strings.Split(string(data), "\n") {
+		if !isDataRow(line) {
+			continue
+		}
+		addr := extractCol(line, 0)
+		status := extractCol(line, 1)
+		summary := extractCol(line, 2)
+		if addr != "" {
+			items = append(items, todoItem{Address: addr, Status: status, Summary: summary})
+		}
+	}
+	return items
+}
+
+func saveTodoList(loadstarBase string, items []todoItem) {
+	path := filepath.Join(loadstarBase, todoListFile)
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+
+	header := "| 주소 (Address) | 상태 (Status) | 작업 요약 (Summary) |"
+	sep := "| :--- | :--- | :--- |"
+
+	var lines []string
+	lines = append(lines, header, sep)
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("| %s | %s | %s |", item.Address, item.Status, item.Summary))
+	}
+
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }
 
 // isDataRow returns true for markdown table data rows (not header/separator).
@@ -424,7 +573,7 @@ func isDataRow(line string) bool {
 	if strings.Contains(line, ":---") {
 		return false
 	}
-	if strings.Contains(line, "주소 (Address)") || strings.Contains(line, "실행 요소") {
+	if strings.Contains(line, "주소 (Address)") {
 		return false
 	}
 	return true

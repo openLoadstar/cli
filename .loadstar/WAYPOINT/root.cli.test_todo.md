@@ -3,7 +3,7 @@
 ## [STATUS] S_STB
 
 ### IDENTITY
-- SUMMARY: todo add/done/list/update 명령어 통합 테스트. GLOBAL_TODO_LIST.md 마크다운 테이블 파싱·추가·삭제·상태 변경·BLOCKED 표시를 검증한다.
+- SUMMARY: todo sync/list/history 명령어 테스트. WP STATUS 기반 TODO 동기화, 목록 출력, TECH_SPEC 히스토리 수집을 검증한다.
 - METADATA: [Ver: 1.1, Created: 2026-03-10, Priority: HIGH]
 
 ### CONNECTIONS

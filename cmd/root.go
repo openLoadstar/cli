@@ -57,6 +57,5 @@ func init() {
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(todoCmd)
 	rootCmd.AddCommand(logCmd)
-	rootCmd.AddCommand(findlogCmd)
 	rootCmd.AddCommand(validateCmd)
 }

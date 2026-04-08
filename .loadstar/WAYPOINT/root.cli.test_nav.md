@@ -3,7 +3,7 @@
 ## [STATUS] S_IDL
 
 ### IDENTITY
-- SUMMARY: link/show 명령어 통합 테스트. Link 파일 생성·양방향 등록 및 show의 depth 재귀 출력을 검증한다.
+- SUMMARY: show 명령어 테스트. WayPoint 목록 출력 및 키워드 필터링을 검증한다.
 - METADATA: [Ver: 1.0, Created: 2026-03-10, Priority: MEDIUM]
 
 ### CONNECTIONS

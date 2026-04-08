@@ -7,36 +7,24 @@ import (
 	"testing"
 )
 
-// writeTodoFile writes TODO_LIST.md in the temp loadstarBase TODO dir.
-func writeTodoFile(t *testing.T, loadstarBase, content string) string {
-	t.Helper()
-	todoDir := filepath.Join(loadstarBase, ".clionly", "TODO")
-	if err := os.MkdirAll(todoDir, 0755); err != nil {
-		t.Fatalf("mkdir .clionly/TODO: %v", err)
-	}
-	todoPath := filepath.Join(todoDir, "TODO_LIST.md")
-	if err := os.WriteFile(todoPath, []byte(content), 0644); err != nil {
-		t.Fatalf("write todo file: %v", err)
-	}
-	return todoPath
-}
-
 // ---- isDataRow ----
 
 func TestIsDataRow_Header(t *testing.T) {
-	if isDataRow(todoHeader) {
+	header := "| 주소 (Address) | 상태 (Status) | 작업 요약 (Summary) |"
+	if isDataRow(header) {
 		t.Error("header row should not be a data row")
 	}
 }
 
 func TestIsDataRow_Separator(t *testing.T) {
-	if isDataRow(todoSep) {
+	sep := "| :--- | :--- | :--- |"
+	if isDataRow(sep) {
 		t.Error("separator row should not be a data row")
 	}
 }
 
 func TestIsDataRow_DataRow(t *testing.T) {
-	row := "| W://root/cli/cmd_create | 2026-03-10 12:00 | create 구현 | PENDING | - |"
+	row := "| W://root/cli/cmd_show | ACTIVE | show 명령 구현 |"
 	if !isDataRow(row) {
 		t.Error("valid data row should return true")
 	}
@@ -51,16 +39,14 @@ func TestIsDataRow_Empty(t *testing.T) {
 // ---- extractCol ----
 
 func TestExtractCol(t *testing.T) {
-	row := "| W://root/cmd | 2026-03-10 | summary text | PENDING | - |"
+	row := "| W://root/cmd | ACTIVE | summary text |"
 	cases := []struct {
 		col  int
 		want string
 	}{
 		{0, "W://root/cmd"},
-		{1, "2026-03-10"},
+		{1, "ACTIVE"},
 		{2, "summary text"},
-		{3, "PENDING"},
-		{4, "-"},
 	}
 	for _, c := range cases {
 		got := extractCol(row, c.col)
@@ -78,251 +64,182 @@ func TestExtractCol_OutOfBounds(t *testing.T) {
 	}
 }
 
-// ---- ensureTodoFile ----
+// ---- wpStatusToTodoStatus ----
 
-func TestEnsureTodoFile_Creates(t *testing.T) {
-	dir := t.TempDir()
-	todoPath := filepath.Join(dir, ".clionly", "TODO", "TODO_LIST.md")
-	ensureTodoFile(todoPath)
-
-	if _, err := os.Stat(todoPath); os.IsNotExist(err) {
-		t.Error("ensureTodoFile should create the file if it doesn't exist")
+func TestWpStatusToTodoStatus(t *testing.T) {
+	cases := []struct {
+		wpStatus string
+		want     string
+	}{
+		{"S_IDL", "PENDING"},
+		{"S_PRG", "ACTIVE"},
+		{"S_ERR", "ACTIVE"},
+		{"S_REV", "ACTIVE"},
+		{"S_STB", ""},
 	}
-	data, _ := os.ReadFile(todoPath)
-	if !strings.Contains(string(data), "주소 (Address)") {
-		t.Error("created todo file should contain the header")
-	}
-}
-
-func TestEnsureTodoFile_NoOverwrite(t *testing.T) {
-	dir := t.TempDir()
-	todoPath := filepath.Join(dir, "TODO_LIST.md")
-	existing := "existing content"
-	_ = os.WriteFile(todoPath, []byte(existing), 0644)
-
-	ensureTodoFile(todoPath)
-
-	data, _ := os.ReadFile(todoPath)
-	if string(data) != existing {
-		t.Error("ensureTodoFile should not overwrite existing file")
+	for _, c := range cases {
+		got := wpStatusToTodoStatus(c.wpStatus)
+		if got != c.want {
+			t.Errorf("wpStatusToTodoStatus(%q) = %q, want %q", c.wpStatus, got, c.want)
+		}
 	}
 }
 
-// ---- todo add: row insertion ----
+// ---- saveTodoList / loadTodoList ----
 
-func TestTodoAdd_NewRow(t *testing.T) {
+func TestSaveAndLoadTodoList(t *testing.T) {
 	loadstarBase := setupCmdTest(t)
-	initial := todoHeader + "\n" + todoSep + "\n"
-	todoPath := writeTodoFile(t, loadstarBase, initial)
 
-	newRow := "| W://root/exec | 2026-03-10 12:00 | test task | PENDING | - |"
-	lines := strings.Split(initial, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "| :---") {
-			lines = append(lines[:i+1], append([]string{newRow}, lines[i+1:]...)...)
-			break
-		}
+	items := []todoItem{
+		{Address: "W://root/a", Status: "ACTIVE", Summary: "task a"},
+		{Address: "W://root/b", Status: "PENDING", Summary: "task b"},
 	}
-	_ = os.WriteFile(todoPath, []byte(strings.Join(lines, "\n")), 0644)
 
-	data, _ := os.ReadFile(todoPath)
-	if !strings.Contains(string(data), "test task") {
-		t.Error("new row should appear in the todo file")
+	saveTodoList(loadstarBase, items)
+
+	loaded := loadTodoList(loadstarBase)
+	if len(loaded) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(loaded))
+	}
+	if loaded[0].Address != "W://root/a" || loaded[0].Status != "ACTIVE" {
+		t.Errorf("unexpected first item: %+v", loaded[0])
+	}
+	if loaded[1].Address != "W://root/b" || loaded[1].Status != "PENDING" {
+		t.Errorf("unexpected second item: %+v", loaded[1])
 	}
 }
 
-// ---- todo done: row removal ----
+// ---- snapshot ----
 
-func TestTodoDone_RemovesRow(t *testing.T) {
+func TestSaveAndLoadSnapshot(t *testing.T) {
 	loadstarBase := setupCmdTest(t)
-	row := "| W://root/exec | 2026-03-10 | task | PENDING | - |"
-	initial := todoHeader + "\n" + todoSep + "\n" + row + "\n"
-	todoPath := writeTodoFile(t, loadstarBase, initial)
 
-	lines := strings.Split(initial, "\n")
-	var kept []string
-	for _, line := range lines {
-		if isDataRow(line) && extractCol(line, 0) == "W://root/exec" {
-			continue
-		}
-		kept = append(kept, line)
+	snap := map[string]wpSnapshot{
+		"W://root/a": {ModTime: "2026-04-08T12:00:00Z", Size: 100, Status: "S_PRG"},
 	}
-	_ = os.WriteFile(todoPath, []byte(strings.Join(kept, "\n")), 0644)
 
-	data, _ := os.ReadFile(todoPath)
-	if strings.Contains(string(data), "W://root/exec") {
-		t.Error("address row should have been removed from todo list")
+	saveSnapshot(loadstarBase, snap)
+	loaded := loadSnapshot(loadstarBase)
+
+	if loaded["W://root/a"].Status != "S_PRG" {
+		t.Errorf("snapshot status mismatch: %+v", loaded["W://root/a"])
 	}
 }
 
-func TestTodoDone_AppendsToHistory(t *testing.T) {
-	dir := t.TempDir()
-	doneRow := "| W://root/exec | 2026-03-10 12:00 | task done | PENDING | - |"
-	histPath := filepath.Join(dir, ".clionly", "TODO", "TODO_HISTORY.md")
+// ---- readWPStatusAndSummary ----
 
-	appendTodoHistory(histPath, doneRow, "DONE")
+func TestReadWPStatusAndSummary(t *testing.T) {
+	loadstarBase := setupCmdTest(t)
+	writeElement(t, loadstarBase, "W://root/test",
+		"<WAYPOINT>\n## [ADDRESS] W://root/test\n## [STATUS] S_PRG\n\n### IDENTITY\n- SUMMARY: test summary\n</WAYPOINT>\n")
 
-	data, err := os.ReadFile(histPath)
-	if err != nil {
-		t.Fatalf("TODO_HISTORY.md should have been created: %v", err)
+	status, summary := readWPStatusAndSummary(filepath.Join(loadstarBase, "WAYPOINT", "root.test.md"))
+	if status != "S_PRG" {
+		t.Errorf("expected S_PRG, got %q", status)
 	}
+	if summary != "test summary" {
+		t.Errorf("expected 'test summary', got %q", summary)
+	}
+}
+
+// ---- sync: full sync ----
+
+func TestTodoSync_FullSync(t *testing.T) {
+	loadstarBase := setupCmdTest(t)
+
+	// Create MAP with 2 WPs
+	writeElement(t, loadstarBase, "M://root",
+		"<MAP>\n## [ADDRESS] M://root\n## [STATUS] S_PRG\n\n### WAYPOINTS\n- W://root/a\n- W://root/b\n\n### COMMENT\n</MAP>\n")
+	writeElement(t, loadstarBase, "W://root/a",
+		"<WAYPOINT>\n## [ADDRESS] W://root/a\n## [STATUS] S_PRG\n\n### IDENTITY\n- SUMMARY: task a\n\n### CONNECTIONS\n- PARENT: M://root\n- CHILDREN: []\n- REFERENCE: []\n</WAYPOINT>\n")
+	writeElement(t, loadstarBase, "W://root/b",
+		"<WAYPOINT>\n## [ADDRESS] W://root/b\n## [STATUS] S_STB\n\n### IDENTITY\n- SUMMARY: task b done\n\n### CONNECTIONS\n- PARENT: M://root\n- CHILDREN: []\n- REFERENCE: []\n</WAYPOINT>\n")
+
+	// Run sync
+	wpAddrs := collectAllWaypoints(loadstarBase)
+	if len(wpAddrs) != 2 {
+		t.Fatalf("expected 2 WP addresses, got %d", len(wpAddrs))
+	}
+
+	// Simulate sync logic
+	snapshot := loadSnapshot(loadstarBase)
+	items := loadTodoList(loadstarBase)
+	itemMap := make(map[string]*todoItem)
+	for i := range items {
+		itemMap[items[i].Address] = &items[i]
+	}
+
+	for _, addr := range wpAddrs {
+		wpFile := addressToFilePath(loadstarBase, addr)
+		status, summary := readWPStatusAndSummary(wpFile)
+		info, _ := os.Stat(wpFile)
+		snapshot[addr] = wpSnapshot{ModTime: info.ModTime().String(), Size: info.Size(), Status: status}
+
+		todoStatus := wpStatusToTodoStatus(status)
+		if todoStatus == "" {
+			delete(itemMap, addr)
+		} else {
+			itemMap[addr] = &todoItem{Address: addr, Status: todoStatus, Summary: summary}
+		}
+	}
+
+	var result []todoItem
+	for _, item := range itemMap {
+		result = append(result, *item)
+	}
+
+	saveTodoList(loadstarBase, result)
+
+	// Verify: only S_PRG should be in list (S_STB excluded)
+	loaded := loadTodoList(loadstarBase)
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 item (S_STB excluded), got %d", len(loaded))
+	}
+	if loaded[0].Address != "W://root/a" {
+		t.Errorf("expected W://root/a, got %q", loaded[0].Address)
+	}
+}
+
+// ---- history: TECH_SPEC [x] parsing ----
+
+func TestTodoHistory_ParsesTechSpec(t *testing.T) {
+	loadstarBase := setupCmdTest(t)
+
+	writeElement(t, loadstarBase, "M://root",
+		"<MAP>\n## [ADDRESS] M://root\n## [STATUS] S_STB\n\n### WAYPOINTS\n- W://root/done\n\n### COMMENT\n</MAP>\n")
+	writeElement(t, loadstarBase, "W://root/done",
+		"<WAYPOINT>\n## [ADDRESS] W://root/done\n## [STATUS] S_STB\n\n### IDENTITY\n- SUMMARY: completed\n\n### TODO\n- TECH_SPEC:\n  - [x] 2026-04-08 implement feature A\n  - [x] 2026-04-07 design schema\n  - [ ] not yet done\n</WAYPOINT>\n")
+
+	wpAddrs := collectAllWaypoints(loadstarBase)
+	if len(wpAddrs) != 1 {
+		t.Fatalf("expected 1 WP, got %d", len(wpAddrs))
+	}
+
+	// Parse completed items manually (same logic as history cmd)
+	wpFile := addressToFilePath(loadstarBase, "W://root/done")
+	data, _ := os.ReadFile(wpFile)
 	content := string(data)
-	if !strings.Contains(content, "W://root/exec") {
-		t.Error("history file should contain the address")
-	}
-	if !strings.Contains(content, "task done") {
-		t.Error("history file should contain the summary")
-	}
-}
 
-// ---- todo list: BLOCKED display ----
-
-func TestTodoList_BlockedDisplay(t *testing.T) {
-	row := "| W://root/exec | 2026-03-10 | task | PENDING | W://root/prereq |"
-	depends := extractCol(row, 4)
-	status := extractCol(row, 3)
-
-	if status != "PENDING" {
-		t.Fatalf("unexpected status: %q", status)
-	}
-
-	displayLine := row
-	if depends != "-" && depends != "" {
-		displayLine = strings.Replace(row, "| PENDING |", "| [BLOCKED] |", 1)
-	}
-
-	if !strings.Contains(displayLine, "[BLOCKED]") {
-		t.Error("row with unmet dependency should be displayed as [BLOCKED]")
+	count := strings.Count(content, "[x]")
+	if count != 2 {
+		t.Errorf("expected 2 [x] items, got %d", count)
 	}
 }
 
-func TestTodoList_NotBlocked_WhenNoDepends(t *testing.T) {
-	row := "| W://root/exec | 2026-03-10 | task | PENDING | - |"
-	depends := extractCol(row, 4)
+// ---- extractReferences ----
 
-	displayLine := row
-	if depends != "-" && depends != "" {
-		displayLine = strings.Replace(row, "| PENDING |", "| [BLOCKED] |", 1)
-	}
-
-	if strings.Contains(displayLine, "[BLOCKED]") {
-		t.Error("row with no dependency should not be displayed as [BLOCKED]")
+func TestExtractReferences(t *testing.T) {
+	content := "### CONNECTIONS\n- PARENT: M://root\n- CHILDREN: []\n- REFERENCE: [W://root/a, W://root/b]\n"
+	refs := extractReferences(content)
+	if len(refs) != 2 {
+		t.Errorf("expected 2 refs, got %d: %v", len(refs), refs)
 	}
 }
 
-// ---- todo update ----
-
-func updateStatusInLines(lines []string, address, newStatus string) ([]string, bool) {
-	found := false
-	for i, line := range lines {
-		if !isDataRow(line) || extractCol(line, 0) != address {
-			continue
-		}
-		found = true
-		parts := strings.Split(line, "|")
-		if len(parts) >= 6 {
-			parts[4] = " " + newStatus + " "
-			lines[i] = strings.Join(parts, "|")
-		}
-		break
-	}
-	return lines, found
-}
-
-func TestTodoUpdate_StatusChange(t *testing.T) {
-	row := "| W://root/exec | 2026-03-10 | task | PENDING | - |"
-	lines := []string{todoHeader, todoSep, row}
-	lines, found := updateStatusInLines(lines, "W://root/exec", "ACTIVE")
-	if !found {
-		t.Fatal("address not found during update")
-	}
-	if !strings.Contains(lines[2], "ACTIVE") {
-		t.Error("status should have been updated to ACTIVE")
-	}
-}
-
-func TestTodoUpdate_InvalidStatus(t *testing.T) {
-	for _, s := range []string{"COMPLETED", "FAILED", "DONE"} {
-		if allowedUpdateStatuses[strings.ToUpper(s)] {
-			t.Errorf("status %q should not be allowed in todo update", s)
-		}
-	}
-}
-
-func TestTodoUpdate_AllowedStatuses(t *testing.T) {
-	for _, s := range []string{"PENDING", "ACTIVE"} {
-		if !allowedUpdateStatuses[s] {
-			t.Errorf("status %q should be allowed in todo update", s)
-		}
-	}
-	// BLOCKED is auto-calculated from Depends_On, not manually settable
-	if allowedUpdateStatuses["BLOCKED"] {
-		t.Error("BLOCKED should not be manually settable")
-	}
-}
-
-// ---- appendTodoHistory ----
-
-func TestAppendTodoHistory_DoneAction(t *testing.T) {
-	dir := t.TempDir()
-	histPath := filepath.Join(dir, ".clionly", "TODO", "TODO_HISTORY.md")
-	row := "| W://root/exec | 2026-03-10 12:00 | task summary | PENDING | - |"
-
-	appendTodoHistory(histPath, row, "DONE")
-
-	data, _ := os.ReadFile(histPath)
-	content := string(data)
-	if !strings.Contains(content, "DONE") {
-		t.Error("history should contain action DONE")
-	}
-	if !strings.Contains(content, "W://root/exec") {
-		t.Error("history should contain address")
-	}
-}
-
-func TestAppendTodoHistory_Accumulates(t *testing.T) {
-	dir := t.TempDir()
-	histPath := filepath.Join(dir, ".clionly", "TODO", "TODO_HISTORY.md")
-	row1 := "| W://root/a | 2026-03-10 12:00 | task a | PENDING | - |"
-	row2 := "| W://root/b | 2026-03-10 13:00 | task b | ACTIVE | - |"
-
-	appendTodoHistory(histPath, row1, "DONE")
-	appendTodoHistory(histPath, row2, "UPDATED(ACTIVE→BLOCKED)")
-
-	data, _ := os.ReadFile(histPath)
-	content := string(data)
-	if !strings.Contains(content, "W://root/a") || !strings.Contains(content, "W://root/b") {
-		t.Error("history should accumulate multiple rows")
-	}
-}
-
-// ---- todo history: filter ----
-
-func filterHistoryLines(content, filter string) []string {
-	lines := strings.Split(content, "\n")
-	var result []string
-	for _, line := range lines {
-		if !isDataRow(line) {
-			continue
-		}
-		if filter != "" && extractCol(line, 0) != filter {
-			continue
-		}
-		result = append(result, line)
-	}
-	return result
-}
-
-func TestTodoHistory_FilterByAddress(t *testing.T) {
-	dir := t.TempDir()
-	histPath := filepath.Join(dir, ".clionly", "TODO", "TODO_HISTORY.md")
-
-	appendTodoHistory(histPath, "| W://root/a | 2026-03-10 12:00 | task a | PENDING | - |", "DONE")
-	appendTodoHistory(histPath, "| W://root/b | 2026-03-10 14:00 | task b | PENDING | - |", "DELETED")
-
-	content, _ := os.ReadFile(histPath)
-	rows := filterHistoryLines(string(content), "W://root/a")
-	if len(rows) != 1 {
-		t.Errorf("expected 1 row for W://root/a, got %d", len(rows))
+func TestExtractReferences_Empty(t *testing.T) {
+	content := "- REFERENCE: []\n"
+	refs := extractReferences(content)
+	if len(refs) != 0 {
+		t.Errorf("expected 0 refs, got %d", len(refs))
 	}
 }

@@ -34,6 +34,7 @@ Examples:
 			os.Exit(1)
 		}
 		fmt.Println("initialised .loadstar/ structure")
+		fmt.Println("initialised .claude/ hooks (meta-sync reminder)")
 		fmt.Println("done. use 'git init' separately if needed.")
 	},
 }
