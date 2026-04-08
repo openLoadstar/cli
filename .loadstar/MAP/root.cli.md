@@ -7,16 +7,10 @@
 
 ### WAYPOINTS
 - W://root/cli/internal_infra
-- W://root/cli/cmd_create
-- W://root/cli/cmd_edit
-- W://root/cli/cmd_delete
-- W://root/cli/cmd_checkpoint
 - W://root/cli/cmd_show
 - W://root/cli/cmd_todo
 - W://root/cli/cmd_log
-- W://root/cli/monitor_service
-- W://root/cli/test_element
-- W://root/cli/test_checkpoint
+- W://root/cli/cmd_validate
 - W://root/cli/test_nav
 - W://root/cli/test_todo
 

@@ -38,5 +38,4 @@ func (a *Address) ToFilePath(baseDir string) string {
 var typeDirMap = map[string]string{
 	"M": "MAP",
 	"W": "WAYPOINT",
-	"B": "BLACKBOX",
 }

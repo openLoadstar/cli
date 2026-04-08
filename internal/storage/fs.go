@@ -11,7 +11,7 @@ import (
 const AvcsDir = ".loadstar"
 
 var loadstarDirs = []string{
-	"MAP", "WAYPOINT", "BLACKBOX", "COMMON",
+	"MAP", "WAYPOINT", "COMMON",
 	".clionly/LOG", ".clionly/MONITOR", ".clionly/TODO",
 }
 

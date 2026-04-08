@@ -10,7 +10,6 @@
 - PARENT: M://root/cli
 - CHILDREN: []
 - REFERENCE: []
-- BLACKBOX: B://root/cli/internal_infra
 
 ### TODO
 - [x] Storage, GitClient를 interface로 정의 (`internal/interfaces.go`)

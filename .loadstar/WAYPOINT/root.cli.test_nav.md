@@ -10,7 +10,6 @@
 - PARENT: M://root/cli
 - CHILDREN: []
 - REFERENCE: []
-- BLACKBOX: B://root/cli/test_nav
 
 ### TODO
 - [x] `TestLink_FileCreated`: link 실행 후 LINK/ 폴더에 md 파일 생성 확인

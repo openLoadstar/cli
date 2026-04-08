@@ -9,9 +9,3 @@ type Storage interface {
 	ListByPrefix(dir, prefix string) ([]string, error)
 }
 
-// GitClient defines git operations required by LOADSTAR.
-type GitClient interface {
-	Commit(message string) (string, error)
-	LatestHash() (string, error)
-	ChangedLoadstarFiles() ([]string, error)
-}

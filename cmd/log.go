@@ -19,18 +19,18 @@ var validLogKinds = map[string]bool{
 	"RESOLVED": true, "PROGRESS": true, "MODIFIED": true,
 }
 
-// logEntry represents a parsed log line from a BlackBox file.
+// logEntry represents a parsed log record from a .clionly/LOG/ file.
 type logEntry struct {
 	Timestamp string
 	Kind      string
 	Content   string
-	Address   string // B:// address of the source BlackBox
+	Address   string // W:// or M:// address of the target element
 }
 
 var logCmd = &cobra.Command{
 	Use:   "log [ADDRESS_OR_ID] [KIND] [CONTENT]",
-	Short: "Append a log entry to an element's BlackBox",
-	Long: `Append a structured log entry to the BlackBox of the specified element.
+	Short: "Append a log entry for an element",
+	Long: `Append a structured log entry for the specified element.
 
 ADDRESS can be a full address (W://root/cli/cmd_log) or a short ID (cmd_log).
 If the ID matches multiple elements, candidates are listed for disambiguation.
@@ -47,7 +47,7 @@ KIND values:
   MODIFIED  Direct md edit by AI or developer (record what changed)
 
 Examples:
-  loadstar log cmd_log "BlackBox CODE_MAP 갱신 필요"              # ID + NOTE (default)
+  loadstar log cmd_log "CODE_MAP 갱신 필요"                       # ID + NOTE (default)
   loadstar log cmd_log ISSUE "multiline 파싱 실패"                # ID + KIND
   loadstar log W://root/cli/cmd_log NOTE "full address 방식"      # full address
   loadstar log --list                                             # show all elements
@@ -57,7 +57,6 @@ Examples:
 		listFlag, _ := cmd.Flags().GetBool("list")
 
 		// --list mode: show element index
-		// args can be: (empty), page number, keyword, or keyword + page
 		if listFlag {
 			filter := ""
 			page := 1
@@ -91,7 +90,6 @@ Examples:
 				kind = maybeKind
 				content = args[2]
 			} else {
-				// Second arg is not a valid KIND — treat as 2-arg with error
 				fmt.Fprintf(os.Stderr, "error: invalid KIND %q — allowed: NOTE, DECISION, ISSUE, RESOLVED, PROGRESS, MODIFIED\n", args[1])
 				os.Exit(1)
 			}
@@ -103,49 +101,22 @@ Examples:
 			os.Exit(1)
 		}
 
-		addr, err := svc.ParseAddress(addrStr)
+		_, err := svc.ParseAddress(addrStr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 
 		loadstarBase := fs.AvcsPath("")
-		bbFilePath := bbPathFromLogicalPath(addr.Path, loadstarBase)
-		bbAddrStr := "B://" + addr.Path
-
-		// Auto-create BlackBox if not found
-		if !fs.Exists(bbFilePath) {
-			if err := fs.Write(bbFilePath, buildBlackBoxTemplate(bbAddrStr, addrStr)); err != nil {
-				fmt.Fprintf(os.Stderr, "error: failed to create BlackBox: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Printf("created BlackBox: %s\n", bbAddrStr)
-		}
-
-		existing, err := os.ReadFile(bbFilePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to read BlackBox: %v\n", err)
-			os.Exit(1)
-		}
-
-		ts := time.Now().Format("2006-01-02T15:04:05")
-		entry := fmt.Sprintf("- [%s] [%s] %s", ts, kind, content)
-		updated := appendLogToBlackBox(string(existing), entry)
-
-		if err := os.WriteFile(bbFilePath, []byte(updated), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to write BlackBox: %v\n", err)
-			os.Exit(1)
-		}
-
-		writeLogChangeLog(loadstarBase, bbAddrStr, kind, content)
+		writeLogChangeLog(loadstarBase, addrStr, kind, content)
 		fmt.Printf("logged: [%s] %s\n", kind, addrStr)
 	},
 }
 
 var findlogCmd = &cobra.Command{
 	Use:   "findlog [OFFSET] [LIMIT]",
-	Short: "Query log entries from BlackBox files (newest first)",
-	Long: `Scan all BlackBox files and output log entries sorted newest-first.
+	Short: "Query log entries (newest first)",
+	Long: `Scan log files and output entries sorted newest-first.
   OFFSET: number of entries to skip (0 = most recent)
   LIMIT:  maximum number of entries to output
 
@@ -168,9 +139,9 @@ Examples:
 		kindFilter := strings.ToUpper(kindFlag)
 
 		loadstarBase := fs.AvcsPath("")
-		bbDir := filepath.Join(loadstarBase, "BLACKBOX")
+		logDir := filepath.Join(loadstarBase, ".clionly", "LOG")
 
-		entries, err := collectLogEntries(bbDir, addrFilter, kindFilter)
+		entries, err := collectLogEntries(logDir, addrFilter, kindFilter)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -203,7 +174,7 @@ Examples:
 
 func init() {
 	logCmd.Flags().Bool("list", false, "Show all element IDs and addresses")
-	findlogCmd.Flags().String("address", "", "Filter by element address (any type, e.g. W://root/cli/cmd_create)")
+	findlogCmd.Flags().String("address", "", "Filter by element address (e.g. W://root/cli/cmd_create)")
 	findlogCmd.Flags().String("kind", "", "Filter by KIND (NOTE, DECISION, ISSUE, RESOLVED, PROGRESS, MODIFIED)")
 }
 
@@ -217,7 +188,6 @@ type elementInfo struct {
 const listPageSize = 100
 
 // showElementIndex prints a table of all MAP/WAYPOINT elements with IDs.
-// page is 1-indexed. Each page shows listPageSize items.
 func showElementIndex(filter string, page int) {
 	loadstarBase := fs.AvcsPath("")
 	var elements []elementInfo
@@ -316,14 +286,11 @@ func extractSummaryFromFile(filePath string) string {
 }
 
 // resolveAddress resolves an address input that may be a full address or a short ID.
-// Returns the full address string, or "" on error (with message printed).
 func resolveAddress(input string) string {
-	// Already a full address
 	if strings.Contains(input, "://") {
 		return input
 	}
 
-	// Search for matching elements by ID
 	loadstarBase := fs.AvcsPath("")
 	var matches []string
 
@@ -344,7 +311,6 @@ func resolveAddress(input string) string {
 			dotName := strings.TrimSuffix(f.Name(), ".md")
 			path := strings.ReplaceAll(dotName, ".", "/")
 
-			// Match by ID (last segment) or partial path
 			parts := strings.Split(path, "/")
 			id := parts[len(parts)-1]
 			if id == input || strings.HasSuffix(path, input) {
@@ -362,7 +328,6 @@ func resolveAddress(input string) string {
 		return matches[0]
 	}
 
-	// Multiple matches — show candidates
 	fmt.Fprintf(os.Stderr, "error: %q matches multiple elements:\n", input)
 	for _, m := range matches {
 		fmt.Fprintf(os.Stderr, "  %s\n", m)
@@ -371,47 +336,8 @@ func resolveAddress(input string) string {
 	return ""
 }
 
-// bbPathFromLogicalPath returns the filesystem path for a BlackBox given any logical path.
-func bbPathFromLogicalPath(logicalPath, loadstarBase string) string {
-	dotName := strings.ReplaceAll(logicalPath, "/", ".")
-	return filepath.Join(loadstarBase, "BLACKBOX", dotName+".md")
-}
-
-// buildBlackBoxTemplate returns the initial content for an auto-created BlackBox file.
-func buildBlackBoxTemplate(bbAddr, linkedWP string) string {
-	return fmt.Sprintf("<BLACKBOX>\n## [ADDRESS] %s\n## [STATUS] S_IDL\n\n### DESCRIPTION\n- SUMMARY:\n- LINKED_WP: %s\n\n### CODE_MAP\n(미작성)\n\n### TODO\n(없음)\n\n### ISSUE\n(없음)\n\n### COMMENT\n</BLACKBOX>\n", bbAddr, linkedWP)
-}
-
-// appendLogToBlackBox inserts entry into the ### COMMENT section.
-func appendLogToBlackBox(content, entry string) string {
-	lines := strings.Split(content, "\n")
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "### COMMENT" || trimmed == "### 5. LOG" {
-			ins := i + 1
-			if ins < len(lines) && strings.TrimSpace(lines[ins]) == "(없음)" {
-				lines[ins] = entry
-			} else {
-				lines = append(lines[:ins], append([]string{entry}, lines[ins:]...)...)
-			}
-			return strings.Join(lines, "\n")
-		}
-	}
-
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "</BLACKBOX>" {
-			newLines := []string{"", "### COMMENT", entry}
-			lines = append(lines[:i], append(newLines, lines[i:]...)...)
-			return strings.Join(lines, "\n")
-		}
-	}
-
-	return strings.TrimRight(content, "\n") + "\n" + entry + "\n"
-}
-
 // writeLogChangeLog writes a LOG record to .clionly/LOG/.
-func writeLogChangeLog(loadstarBase, bbAddr, kind, content string) {
+func writeLogChangeLog(loadstarBase, targetAddr, kind, content string) {
 	clDir := filepath.Join(loadstarBase, ".clionly", "LOG")
 	_ = os.MkdirAll(clDir, 0755)
 
@@ -420,19 +346,19 @@ func writeLogChangeLog(loadstarBase, bbAddr, kind, content string) {
 	clPath := filepath.Join(clDir, fileName)
 
 	record := fmt.Sprintf("## LOG\n- TARGET: %s\n- KIND: %s\n- AT: %s\n- CONTENT: %s\n",
-		bbAddr, kind, ts.Format("2006-01-02T15:04:05"), content)
+		targetAddr, kind, ts.Format("2006-01-02T15:04:05"), content)
 	_ = os.WriteFile(clPath, []byte(record), 0644)
 }
 
-// logLineRe matches BlackBox log entries written by this tool.
-var logLineRe = regexp.MustCompile(`^-\s+\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]\s+\[([A-Z]+)\]\s+(.+)$`)
+// logRecordRe parses structured fields from .clionly/LOG/ files.
+var logTargetRe = regexp.MustCompile(`^-\s+TARGET:\s+(.+)$`)
+var logKindRe = regexp.MustCompile(`^-\s+KIND:\s+(.+)$`)
+var logAtRe = regexp.MustCompile(`^-\s+AT:\s+(.+)$`)
+var logContentRe = regexp.MustCompile(`^-\s+CONTENT:\s+(.+)$`)
 
-// bbAddressRe extracts the B:// address from a BlackBox file header.
-var bbAddressRe = regexp.MustCompile(`^##\s+\[ADDRESS\]\s+(.+)$`)
-
-// collectLogEntries scans bbDir for all log entries and applies optional filters.
-func collectLogEntries(bbDir, addrFilter, kindFilter string) ([]logEntry, error) {
-	files, err := os.ReadDir(bbDir)
+// collectLogEntries scans .clionly/LOG/ directory for log records and applies optional filters.
+func collectLogEntries(logDir, addrFilter, kindFilter string) ([]logEntry, error) {
+	files, err := os.ReadDir(logDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -440,68 +366,73 @@ func collectLogEntries(bbDir, addrFilter, kindFilter string) ([]logEntry, error)
 		return nil, err
 	}
 
-	filterPath := ""
-	if addrFilter != "" {
-		parts := strings.SplitN(addrFilter, "://", 2)
-		if len(parts) == 2 {
-			filterPath = parts[1]
-		} else {
-			filterPath = addrFilter
-		}
-	}
-
 	var results []logEntry
 	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".log.md") {
 			continue
 		}
 
-		fullPath := filepath.Join(bbDir, f.Name())
+		fullPath := filepath.Join(logDir, f.Name())
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			continue
 		}
 
-		lines := strings.Split(string(data), "\n")
-
-		fileAddrPath := ""
-		for _, line := range lines {
-			m := bbAddressRe.FindStringSubmatch(strings.TrimSpace(line))
-			if m != nil {
-				raw := strings.TrimSpace(m[1])
-				parts := strings.SplitN(raw, "://", 2)
-				if len(parts) == 2 {
-					fileAddrPath = parts[1]
-				}
-				break
-			}
-		}
-		if fileAddrPath == "" {
-			fileAddrPath = strings.ReplaceAll(strings.TrimSuffix(f.Name(), ".md"), ".", "/")
-		}
-
-		if filterPath != "" && fileAddrPath != filterPath {
+		entry := parseLogFile(string(data))
+		if entry == nil {
 			continue
 		}
 
-		displayAddr := "B://" + fileAddrPath
-
-		for _, line := range lines {
-			m := logLineRe.FindStringSubmatch(strings.TrimSpace(line))
-			if m == nil {
-				continue
-			}
-			entryKind := m[2]
-			if kindFilter != "" && entryKind != kindFilter {
-				continue
-			}
-			results = append(results, logEntry{
-				Timestamp: m[1],
-				Kind:      entryKind,
-				Content:   m[3],
-				Address:   displayAddr,
-			})
+		// Normalize B:// addresses to W:// for backward compatibility
+		if strings.HasPrefix(entry.Address, "B://") {
+			entry.Address = "W://" + strings.TrimPrefix(entry.Address, "B://")
 		}
+
+		// Apply address filter
+		if addrFilter != "" {
+			filterPath := addrFilter
+			if parts := strings.SplitN(addrFilter, "://", 2); len(parts) == 2 {
+				filterPath = parts[1]
+			}
+			entryPath := entry.Address
+			if parts := strings.SplitN(entry.Address, "://", 2); len(parts) == 2 {
+				entryPath = parts[1]
+			}
+			if filterPath != entryPath {
+				continue
+			}
+		}
+
+		// Apply kind filter
+		if kindFilter != "" && entry.Kind != kindFilter {
+			continue
+		}
+
+		results = append(results, *entry)
 	}
 	return results, nil
+}
+
+// parseLogFile parses a single .clionly/LOG/ file into a logEntry.
+func parseLogFile(content string) *logEntry {
+	var entry logEntry
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if m := logTargetRe.FindStringSubmatch(trimmed); m != nil {
+			entry.Address = strings.TrimSpace(m[1])
+		}
+		if m := logKindRe.FindStringSubmatch(trimmed); m != nil {
+			entry.Kind = strings.TrimSpace(m[1])
+		}
+		if m := logAtRe.FindStringSubmatch(trimmed); m != nil {
+			entry.Timestamp = strings.TrimSpace(m[1])
+		}
+		if m := logContentRe.FindStringSubmatch(trimmed); m != nil {
+			entry.Content = strings.TrimSpace(m[1])
+		}
+	}
+	if entry.Timestamp == "" || entry.Kind == "" {
+		return nil
+	}
+	return &entry
 }

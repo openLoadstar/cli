@@ -3,78 +3,92 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 )
 
 var showCmd = &cobra.Command{
-	Use:   "show [ADDRESS]",
-	Short: "Display element metadata in terminal",
-	Long: `Print the content and status of a LOADSTAR element.
-Use --depth to recursively show child elements as a tree.
+	Use:   "show [FILTER]",
+	Short: "List all waypoints with status",
+	Long: `List all WayPoint elements with their address and status.
+Optionally filter by keyword (case-insensitive match against address).
 
 Examples:
-  loadstar show W://root/cli/cmd_log
-  loadstar show M://root/cli
-  loadstar show M://root --depth 2    # show root and 2 levels of children
-  loadstar show M://root --depth 1    # show only direct children`,
-	Args: cobra.ExactArgs(1),
+  loadstar show                # list all waypoints
+  loadstar show cli            # filter: addresses containing "cli"
+  loadstar show test           # filter: addresses containing "test"`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		depth, _ := cmd.Flags().GetInt("depth")
-		addr, err := svc.ParseAddress(args[0])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+		filter := ""
+		if len(args) > 0 {
+			filter = args[0]
 		}
-		loadstarBase := fs.AvcsPath("")
-		visited := make(map[string]bool)
-		showElement(loadstarBase, addr.Type+"://"+addr.Path, depth, 0, visited)
+		listWaypoints(filter)
 	},
 }
 
-func showElement(loadstarBase, addrStr string, maxDepth, currentDepth int, visited map[string]bool) {
-	if visited[addrStr] {
-		fmt.Printf("%s[CIRCULAR: %s]\n", indent(currentDepth), addrStr)
-		return
-	}
-	visited[addrStr] = true
+func listWaypoints(filter string) {
+	loadstarBase := fs.AvcsPath("")
+	wpDir := filepath.Join(loadstarBase, "WAYPOINT")
 
-	addr, err := svc.ParseAddress(addrStr)
+	files, err := os.ReadDir(wpDir)
 	if err != nil {
-		fmt.Printf("%s[INVALID: %s]\n", indent(currentDepth), addrStr)
-		return
-	}
-	filePath := addr.ToFilePath(loadstarBase)
-	if !fs.Exists(filePath) {
-		fmt.Printf("%s[NOT FOUND: %s]\n", indent(currentDepth), addrStr)
+		fmt.Println("no waypoints found")
 		return
 	}
 
-	content, _ := fs.Read(filePath)
-
-	// Extract STATUS
-	status := extractField(content, `## \[STATUS\]\s+(\S+)`)
-	fmt.Printf("%s%s  [%s]\n", indent(currentDepth), addrStr, status)
-
-	if currentDepth >= maxDepth {
-		return
+	type wpInfo struct {
+		Address string
+		Status  string
 	}
 
-	// Extract children: WAYPOINTS (Map) or CHILDREN (WayPoint)
-	children := extractChildren(content)
-	for _, child := range children {
-		child = strings.TrimSpace(child)
-		if child == "" {
+	var items []wpInfo
+	lowerFilter := strings.ToLower(filter)
+
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
 			continue
 		}
-		showElement(loadstarBase, child, maxDepth, currentDepth+1, visited)
-	}
-}
+		dotName := strings.TrimSuffix(f.Name(), ".md")
+		path := strings.ReplaceAll(dotName, ".", "/")
+		addr := "W://" + path
 
-func indent(depth int) string {
-	return strings.Repeat("  ", depth)
+		if filter != "" && !strings.Contains(strings.ToLower(addr), lowerFilter) {
+			continue
+		}
+
+		content, err := fs.Read(filepath.Join(wpDir, f.Name()))
+		if err != nil {
+			continue
+		}
+		status := extractField(content, `## \[STATUS\]\s+(\S+)`)
+
+		items = append(items, wpInfo{Address: addr, Status: status})
+	}
+
+	if len(items) == 0 {
+		fmt.Println("no waypoints found")
+		return
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Address < items[j].Address
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ADDRESS\tSTATUS")
+	fmt.Fprintln(w, "-------\t------")
+	for _, item := range items {
+		fmt.Fprintf(w, "%s\t%s\n", item.Address, item.Status)
+	}
+	w.Flush()
+
+	fmt.Printf("\n%d waypoint(s)\n", len(items))
 }
 
 func extractField(content, pattern string) string {
@@ -84,44 +98,4 @@ func extractField(content, pattern string) string {
 		return "?"
 	}
 	return m[1]
-}
-
-// extractChildren extracts child addresses from either MAP (WAYPOINTS list)
-// or WAYPOINT (CHILDREN: [...]) format.
-func extractChildren(content string) []string {
-	// Try CHILDREN: [...] format (WayPoint)
-	childrenRe := regexp.MustCompile(`-\s*CHILDREN:\s*\[([^\]]*)\]`)
-	m := childrenRe.FindStringSubmatch(content)
-	if m != nil && strings.TrimSpace(m[1]) != "" {
-		return strings.Split(m[1], ",")
-	}
-
-	// Try WAYPOINTS list format (Map) — lines starting with "- W://" or "- M://"
-	var result []string
-	lines := strings.Split(content, "\n")
-	inWaypoints := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "### WAYPOINTS" {
-			inWaypoints = true
-			continue
-		}
-		if inWaypoints {
-			if strings.HasPrefix(trimmed, "###") || trimmed == "" && len(result) > 0 {
-				break
-			}
-			if strings.HasPrefix(trimmed, "- ") && strings.Contains(trimmed, "://") {
-				addr := strings.TrimPrefix(trimmed, "- ")
-				result = append(result, strings.TrimSpace(addr))
-			}
-			if trimmed == "(없음)" {
-				break
-			}
-		}
-	}
-	return result
-}
-
-func init() {
-	showCmd.Flags().Int("depth", 0, "Depth of child elements to display (default: 0)")
 }

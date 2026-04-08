@@ -26,21 +26,6 @@ func NewElementService(storage internal.Storage) *ElementService {
 	}
 }
 
-func (s *ElementService) Create(elementType, id, parent string) error {
-	// Implemented in cmd/element.go — ElementService provides storage access.
-	return nil
-}
-
-func (s *ElementService) Edit(addr string) error {
-	// Implemented in cmd/element.go — ElementService provides storage access.
-	return nil
-}
-
-func (s *ElementService) Delete(addr string) error {
-	// Implemented in cmd/element.go — ElementService provides storage access.
-	return nil
-}
-
 // Storage exposes the injected storage for use by cmd layer.
 func (s *ElementService) Storage() internal.Storage {
 	return s.storage

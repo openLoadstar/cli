@@ -10,7 +10,6 @@
 - PARENT: M://root/cli
 - CHILDREN: []
 - REFERENCE: []
-- BLACKBOX: B://root/cli/test_todo
 
 ### TODO
 - [x] `TestTodoAdd_NewRow`: todo add 실행 후 GLOBAL_TODO_LIST에 행 추가 확인

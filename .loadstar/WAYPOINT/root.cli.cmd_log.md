@@ -10,7 +10,6 @@
 - PARENT: M://root/cli
 - CHILDREN: []
 - REFERENCE: []
-- BLACKBOX: B://root/cli/cmd_log
 
 ### TODO
 - [x] loadstar log [ADDRESS] [KIND] "[내용]" — BlackBox에 로그 append

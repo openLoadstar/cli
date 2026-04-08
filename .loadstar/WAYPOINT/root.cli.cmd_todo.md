@@ -10,7 +10,6 @@
 - PARENT: M://root/cli
 - CHILDREN: []
 - REFERENCE: []
-- BLACKBOX: B://root/cli/cmd_todo
 
 ### TODO
 - [x] TODO_LIST 경로 확인: `.loadstar/.clionly/TODO/TODO_LIST.md`

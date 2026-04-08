@@ -4,24 +4,21 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bono/loadstar/internal"
 	"github.com/bono/loadstar/internal/core"
-	"github.com/bono/loadstar/internal/git"
 	"github.com/bono/loadstar/internal/storage"
 	"github.com/spf13/cobra"
 )
 
-// svc and gitClient are initialised once at PersistentPreRun and reused by all subcommands.
+// svc and fs are initialised once at PersistentPreRun and reused by all subcommands.
 var (
-	svc       *core.ElementService
-	gitClient internal.GitClient
-	fs        *storage.FS
+	svc *core.ElementService
+	fs  *storage.FS
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "loadstar",
 	Short: "LOADSTAR - Project metadata and waypoint management CLI",
-	Long: `LOADSTAR CLI for managing project metadata, waypoints, and git integration.
+	Long: `LOADSTAR CLI for managing project metadata and waypoints.
 
 Working directory:
   loadstar searches for .loadstar/ starting from the current directory and
@@ -45,7 +42,6 @@ Working directory:
 
 		fs = storage.NewFS(root)
 		svc = core.NewElementService(fs)
-		gitClient = git.NewClient(root)
 	},
 }
 
@@ -58,13 +54,9 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(createCmd)
-	rootCmd.AddCommand(editCmd)
-	rootCmd.AddCommand(deleteCmd)
-	rootCmd.AddCommand(checkpointCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(todoCmd)
-	rootCmd.AddCommand(gitCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(findlogCmd)
+	rootCmd.AddCommand(validateCmd)
 }
