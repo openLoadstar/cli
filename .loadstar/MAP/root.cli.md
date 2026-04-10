@@ -13,6 +13,7 @@
 - W://root/cli/cmd_validate
 - W://root/cli/test_nav
 - W://root/cli/test_todo
+- W://root/cli/cmd_check
 
 ### COMMENT
 (없음)
