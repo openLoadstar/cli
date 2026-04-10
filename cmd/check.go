@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -43,11 +44,12 @@ Examples:
 		}
 
 		type wpStatus struct {
-			Address  string
-			SyncedAt string
-			Status   string
-			State    string // OUTDATED, NO_SYNC
-			Gap      string // 시간 차이 표시
+			Address   string
+			SyncedAt  string
+			SyncDate  time.Time // 정렬용
+			Status    string
+			State     string // OUTDATED, NO_SYNC
+			Gap       string // 시간 차이 표시
 		}
 
 		var results []wpStatus
@@ -85,7 +87,7 @@ Examples:
 			}
 
 			if syncedAt == "" {
-				results = append(results, wpStatus{addr, "-", status, "NO_SYNC", "-"})
+				results = append(results, wpStatus{addr, "-", time.Time{}, status, "NO_SYNC", "-"})
 				noSyncCount++
 				continue
 			}
@@ -93,7 +95,7 @@ Examples:
 			// SYNCED_AT과 git 최신 커밋 비교
 			syncDate, err := time.Parse("2006-01-02", syncedAt)
 			if err != nil {
-				results = append(results, wpStatus{addr, syncedAt, status, "NO_SYNC", "-"})
+				results = append(results, wpStatus{addr, syncedAt, time.Time{}, status, "NO_SYNC", "-"})
 				noSyncCount++
 				continue
 			}
@@ -103,7 +105,7 @@ Examples:
 
 			if !lastCommit.IsZero() && lastCommit.After(syncEnd.Add(syncGracePeriod)) {
 				gap := formatDuration(lastCommit.Sub(syncEnd))
-				results = append(results, wpStatus{addr, syncedAt, status, "OUTDATED", gap})
+				results = append(results, wpStatus{addr, syncedAt, syncDate, status, "OUTDATED", gap})
 				outdatedCount++
 			}
 		}
@@ -118,6 +120,24 @@ Examples:
 			return
 		}
 
+		// SYNCED_AT 최신순 정렬 (NO_SYNC는 뒤로)
+		sort.Slice(results, func(i, j int) bool {
+			if results[i].SyncDate.IsZero() && !results[j].SyncDate.IsZero() {
+				return false
+			}
+			if !results[i].SyncDate.IsZero() && results[j].SyncDate.IsZero() {
+				return true
+			}
+			return results[i].SyncDate.After(results[j].SyncDate)
+		})
+
+		// 최대 10개만 표시
+		const maxDisplay = 10
+		totalCount := len(results)
+		if len(results) > maxDisplay {
+			results = results[:maxDisplay]
+		}
+
 		fmt.Printf("last git commit: %s\n\n", lastCommit.Format("2006-01-02 15:04"))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -128,7 +148,10 @@ Examples:
 		}
 		w.Flush()
 
-		fmt.Printf("\n%d outdated, %d no sync date (%d total)\n", outdatedCount, noSyncCount, len(results))
+		if totalCount > maxDisplay {
+			fmt.Printf("\n... and %d more (showing top %d by SYNCED_AT)\n", totalCount-maxDisplay, maxDisplay)
+		}
+		fmt.Printf("\n%d outdated, %d no sync date (%d total)\n", outdatedCount, noSyncCount, totalCount)
 		if outdatedCount > 0 {
 			fmt.Println("\n⚠ OUTDATED WayPoints may need SYNCED_AT update or TECH_SPEC review.")
 		}
