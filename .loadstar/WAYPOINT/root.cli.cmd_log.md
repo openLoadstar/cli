@@ -3,7 +3,7 @@
 ## [STATUS] S_STB
 
 ### IDENTITY
-- SUMMARY: `loadstar log add/find` 구현. .clionly/LOG에 날짜별 파일로 메타 이벤트 로그 기록 및 검색.
+- SUMMARY: `loadstar log [TIME_RANGE] [FILTER]` / `loadstar log add` 구현. .clionly/LOG에 날짜별 파일로 메타 이벤트 로그 기록 및 검색.
 - METADATA: [Ver: 2.0, Created: 2026-04-01]
 - SYNCED_AT: 2026-04-08
 
@@ -26,6 +26,9 @@
 - [x] 2026-04-08 최대 출력 1000라인 제한
 - [x] 2026-04-08 인자 없이 log 실행 시 help 표시
 - [x] 2026-04-08 레거시 로그 파일 날짜별 파일로 마이그레이션
+
+#### v3.0 (log 직접 조회 — find 서브커맨드 제거)
+- [x] 2026-04-10 log [TIME_RANGE] [FILTER] 직접 조회로 변경 (find 서브커맨드 제거)
 
 ### ISSUE
 (없음)

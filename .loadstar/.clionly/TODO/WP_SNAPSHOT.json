@@ -1,7 +1,7 @@
 {
   "W://root/cli/cmd_log": {
-    "modTime": "2026-04-08T14:46:29+09:00",
-    "size": 742,
+    "modTime": "2026-04-08T16:11:58+09:00",
+    "size": 1322,
     "status": "S_STB"
   },
   "W://root/cli/cmd_show": {
@@ -20,14 +20,14 @@
     "status": "S_STB"
   },
   "W://root/cli/internal_infra": {
-    "modTime": "2026-04-08T15:04:57+09:00",
-    "size": 1193,
-    "status": "S_STB"
+    "modTime": "2026-04-09T09:43:34+09:00",
+    "size": 1285,
+    "status": "S_PRG"
   },
   "W://root/cli/test_nav": {
-    "modTime": "2026-04-08T14:46:42+09:00",
-    "size": 957,
-    "status": "S_IDL"
+    "modTime": "2026-04-10T14:25:40+09:00",
+    "size": 1452,
+    "status": "S_STB"
   },
   "W://root/cli/test_todo": {
     "modTime": "2026-04-08T14:46:57+09:00",

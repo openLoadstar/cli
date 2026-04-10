@@ -31,17 +31,26 @@ const maxLogLines = 1000
 // ===== log (parent command) =====
 
 var logCmd = &cobra.Command{
-	Use:   "log",
-	Short: "Write or search log entries",
-	Long: `Manage structured log entries.
+	Use:   "log [TIME_RANGE] [FILTER]",
+	Short: "Search log entries, or use 'log add' to write",
+	Long: `Search log entries. All arguments are optional.
 
-Subcommands:
+TIME_RANGE: Nd (days) or Nh (hours). If omitted, shows all entries.
+FILTER: keyword to match against address, KIND, or content.
+
+Examples:
+  loadstar log                          # all logs
+  loadstar log 7d                       # last 7 days
+  loadstar log 3h                       # last 3 hours
+  loadstar log cmd_show                 # filter by keyword, all time
+  loadstar log 2d cmd_show              # keyword + time range
+  loadstar log ISSUE                    # KIND filter
+
+Subcommand:
   add    Append a log entry for an element
-  find   Search log entries with filter and time range
 
-Use --list to browse available elements.
-
-KIND values: NOTE, DECISION, ISSUE, RESOLVED, PROGRESS, MODIFIED`,
+Use --list to browse available elements.`,
+	Args: cobra.MaximumNArgs(2),
 }
 
 // ===== log add =====
@@ -158,7 +167,6 @@ Max output: 1000 lines.`,
 
 func init() {
 	logCmd.AddCommand(logAddCmd)
-	logCmd.AddCommand(logFindCmd)
 	logCmd.Flags().Bool("list", false, "Show all element IDs and addresses")
 	logCmd.Run = func(cmd *cobra.Command, args []string) {
 		listFlag, _ := cmd.Flags().GetBool("list")
@@ -175,8 +183,50 @@ func init() {
 			showElementIndex(filter, page)
 			return
 		}
-		// No subcommand → show help
-		cmd.Help()
+
+		// log [TIME_RANGE] [FILTER] — 직접 조회
+		filter := ""
+		var cutoff time.Time // zero value = no cutoff (all entries)
+		hasDuration := false
+
+		for _, a := range args {
+			if d, ok := parseTimeRange(a); ok {
+				cutoff = time.Now().Add(-d)
+				hasDuration = true
+			} else {
+				filter = a
+			}
+		}
+		_ = hasDuration
+
+		loadstarBase := fs.AvcsPath("")
+		logDir := filepath.Join(loadstarBase, ".clionly", "LOG")
+
+		entries, err := collectLogEntries(logDir, filter, cutoff)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Timestamp > entries[j].Timestamp
+		})
+
+		if len(entries) > maxLogLines {
+			entries = entries[:maxLogLines]
+		}
+
+		if len(entries) == 0 {
+			fmt.Println("no log entries found")
+			return
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		for _, e := range entries {
+			fmt.Fprintf(w, "[%s]\t[%s]\t%s\t→ %s\n", e.Timestamp, e.Kind, truncate(e.Content, 60), e.Address)
+		}
+		w.Flush()
+		fmt.Printf("\n%d entries\n", len(entries))
 	}
 }
 
@@ -324,6 +374,9 @@ func matchesFilter(entry *logEntry, filterLower string, isKindFilter bool) bool 
 }
 
 func beforeCutoff(timestamp string, cutoff time.Time) bool {
+	if cutoff.IsZero() {
+		return false // no cutoff → keep all entries
+	}
 	t, err := time.Parse("2006-01-02T15:04:05", timestamp)
 	if err != nil {
 		return false
