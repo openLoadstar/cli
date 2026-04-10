@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,12 +14,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const syncGracePeriod = 30 * time.Minute
+
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Check WayPoint sync status against git history",
 	Long: `Compare each WayPoint's SYNCED_AT date with the latest git commit time.
 
 Reports WayPoints that may need updating because git has newer changes.
+Grace period: 30 minutes — changes within this window are considered synced.
 
 Examples:
   loadstar check`,
@@ -27,7 +31,7 @@ Examples:
 		loadstarBase := fs.AvcsPath("")
 		projectRoot := filepath.Dir(loadstarBase)
 
-		// 1. git 최신 커밋 시간 가져오기
+		// 1. git 최신 커밋 시간
 		lastCommit := getLastGitCommitTime(projectRoot)
 
 		// 2. WP 스캔
@@ -42,7 +46,8 @@ Examples:
 			Address  string
 			SyncedAt string
 			Status   string
-			State    string // OK, OUTDATED, NO_SYNC
+			State    string // OUTDATED, NO_SYNC
+			Gap      string // 시간 차이 표시
 		}
 
 		var results []wpStatus
@@ -73,11 +78,6 @@ Examples:
 				status = m[1]
 			}
 
-			// S_STB는 완료된 WP — 동기화 체크 불필요
-			if status == "S_STB" {
-				continue
-			}
-
 			// SYNCED_AT 추출
 			syncedAt := ""
 			if m := syncRe.FindStringSubmatch(text); len(m) > 1 {
@@ -85,7 +85,7 @@ Examples:
 			}
 
 			if syncedAt == "" {
-				results = append(results, wpStatus{addr, "-", status, "NO_SYNC"})
+				results = append(results, wpStatus{addr, "-", status, "NO_SYNC", "-"})
 				noSyncCount++
 				continue
 			}
@@ -93,13 +93,17 @@ Examples:
 			// SYNCED_AT과 git 최신 커밋 비교
 			syncDate, err := time.Parse("2006-01-02", syncedAt)
 			if err != nil {
-				results = append(results, wpStatus{addr, syncedAt, status, "NO_SYNC"})
+				results = append(results, wpStatus{addr, syncedAt, status, "NO_SYNC", "-"})
 				noSyncCount++
 				continue
 			}
 
-			if !lastCommit.IsZero() && lastCommit.After(syncDate.Add(24*time.Hour)) {
-				results = append(results, wpStatus{addr, syncedAt, status, "OUTDATED"})
+			// SYNCED_AT은 날짜만 있으므로 해당일 끝(23:59:59)으로 간주
+			syncEnd := syncDate.Add(24*time.Hour - time.Second)
+
+			if !lastCommit.IsZero() && lastCommit.After(syncEnd.Add(syncGracePeriod)) {
+				gap := formatDuration(lastCommit.Sub(syncEnd))
+				results = append(results, wpStatus{addr, syncedAt, status, "OUTDATED", gap})
 				outdatedCount++
 			}
 		}
@@ -107,9 +111,9 @@ Examples:
 		// 출력
 		if len(results) == 0 {
 			if lastCommit.IsZero() {
-				fmt.Println("all active waypoints synced (no git history found)")
+				fmt.Println("all waypoints synced (no git history found)")
 			} else {
-				fmt.Printf("all active waypoints synced (last commit: %s)\n", lastCommit.Format("2006-01-02 15:04"))
+				fmt.Printf("all waypoints synced (last commit: %s)\n", lastCommit.Format("2006-01-02 15:04"))
 			}
 			return
 		}
@@ -117,10 +121,10 @@ Examples:
 		fmt.Printf("last git commit: %s\n\n", lastCommit.Format("2006-01-02 15:04"))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ADDRESS\tSYNCED_AT\tSTATUS\tSTATE")
-		fmt.Fprintln(w, "-------\t---------\t------\t-----")
+		fmt.Fprintln(w, "ADDRESS\tSYNCED_AT\tSTATUS\tSTATE\tGAP")
+		fmt.Fprintln(w, "-------\t---------\t------\t-----\t---")
 		for _, r := range results {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Address, r.SyncedAt, r.Status, r.State)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Address, r.SyncedAt, r.Status, r.State, r.Gap)
 		}
 		w.Flush()
 
@@ -143,4 +147,20 @@ func getLastGitCommitTime(projectRoot string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+func formatDuration(d time.Duration) string {
+	hours := d.Hours()
+	if hours < 1 {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if hours < 24 {
+		return fmt.Sprintf("%.0fh", math.Floor(hours))
+	}
+	days := int(hours / 24)
+	remainH := int(hours) % 24
+	if remainH == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd%dh", days, remainH)
 }
