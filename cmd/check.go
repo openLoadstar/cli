@@ -16,14 +16,14 @@ import (
 )
 
 const syncGracePeriod = 30 * time.Minute
+const maxDisplay = 10
 
 var checkCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Check WayPoint sync status against git history",
-	Long: `Compare each WayPoint file's last modified time with the latest git commit time.
+	Short: "Show recently modified WayPoints with git sync status",
+	Long: `Show the 10 most recently modified WayPoint files and compare with the latest git commit time.
 
-Reports WayPoints that may need updating because git has newer changes.
-Grace period: 30 minutes — changes within this window are considered synced.
+Helps identify which WayPoints were recently touched and whether they are in sync with git.
 
 Examples:
   loadstar check`,
@@ -32,10 +32,8 @@ Examples:
 		loadstarBase := fs.AvcsPath("")
 		projectRoot := filepath.Dir(loadstarBase)
 
-		// 1. git 최신 커밋 시간
 		lastCommit := getLastGitCommitTime(projectRoot)
 
-		// 2. WP 스캔
 		wpDir := filepath.Join(loadstarBase, "WAYPOINT")
 		files, err := os.ReadDir(wpDir)
 		if err != nil {
@@ -43,25 +41,22 @@ Examples:
 			os.Exit(1)
 		}
 
-		type wpStatus struct {
-			Address  string
-			ModTime  time.Time
-			Status   string
-			State    string // OUTDATED, SYNCED
-			Gap      string
+		type wpEntry struct {
+			Address string
+			ModTime time.Time
+			Status  string
+			State   string
+			Gap     string
 		}
 
 		statusRe := regexp.MustCompile(`(?m)^## \[STATUS\]\s+(\S+)`)
 
-		var outdated []wpStatus
-		var synced []wpStatus
-		totalWP := 0
+		var all []wpEntry
 
 		for _, f := range files {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
 				continue
 			}
-			totalWP++
 
 			filePath := filepath.Join(wpDir, f.Name())
 			info, err := os.Stat(filePath)
@@ -84,30 +79,33 @@ Examples:
 				status = m[1]
 			}
 
+			state := "SYNCED"
+			gap := "-"
 			if !lastCommit.IsZero() && lastCommit.After(modTime.Add(syncGracePeriod)) {
-				gap := formatDuration(lastCommit.Sub(modTime))
-				outdated = append(outdated, wpStatus{addr, modTime, status, "OUTDATED", gap})
-			} else {
-				synced = append(synced, wpStatus{addr, modTime, status, "SYNCED", "-"})
+				state = "OUTDATED"
+				gap = formatDuration(lastCommit.Sub(modTime))
 			}
+
+			all = append(all, wpEntry{addr, modTime, status, state, gap})
 		}
 
-		// 결과 합산: OUTDATED 먼저 (modTime 최신순), 그 다음 SYNCED
-		sort.Slice(outdated, func(i, j int) bool {
-			return outdated[i].ModTime.After(outdated[j].ModTime)
-		})
-		sort.Slice(synced, func(i, j int) bool {
-			return synced[i].ModTime.After(synced[j].ModTime)
+		// modTime 최신순 정렬
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].ModTime.After(all[j].ModTime)
 		})
 
-		results := append(outdated, synced...)
+		// 최근 10개만
+		display := all
+		if len(display) > maxDisplay {
+			display = display[:maxDisplay]
+		}
 
-		// 최대 10개 표시
-		const maxDisplay = 10
-		totalResults := len(results)
-		displayResults := results
-		if len(displayResults) > maxDisplay {
-			displayResults = displayResults[:maxDisplay]
+		// 통계
+		outdatedCount := 0
+		for _, e := range all {
+			if e.State == "OUTDATED" {
+				outdatedCount++
+			}
 		}
 
 		if lastCommit.IsZero() {
@@ -115,26 +113,19 @@ Examples:
 		} else {
 			fmt.Printf("last git commit: %s\n", lastCommit.Format("2006-01-02 15:04"))
 		}
-		fmt.Printf("waypoints: %d total, %d outdated, %d synced\n\n", totalWP, len(outdated), len(synced))
-
-		if len(displayResults) == 0 {
-			return
-		}
+		fmt.Printf("waypoints: %d total, %d outdated\n\n", len(all), outdatedCount)
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "ADDRESS\tMODIFIED\tSTATUS\tSTATE\tGAP")
 		fmt.Fprintln(w, "-------\t--------\t------\t-----\t---")
-		for _, r := range displayResults {
+		for _, r := range display {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				r.Address, r.ModTime.Format("2006-01-02 15:04"), r.Status, r.State, r.Gap)
 		}
 		w.Flush()
 
-		if totalResults > maxDisplay {
-			fmt.Printf("\n... and %d more (showing top %d)\n", totalResults-maxDisplay, maxDisplay)
-		}
-		if len(outdated) > 0 {
-			fmt.Println("\n⚠ OUTDATED WayPoints may need TECH_SPEC review.")
+		if len(all) > maxDisplay {
+			fmt.Printf("\n(showing %d of %d, sorted by last modified)\n", maxDisplay, len(all))
 		}
 	},
 }
