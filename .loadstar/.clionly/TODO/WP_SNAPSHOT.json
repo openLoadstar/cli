@@ -39,6 +39,11 @@
     "size": 1618,
     "status": "S_STB"
   },
+  "W://root/maintenance/add_question_cmd": {
+    "modTime": "2026-04-24T17:29:48+09:00",
+    "size": 1747,
+    "status": "S_IDL"
+  },
   "W://root/maintenance/fix_claude_md": {
     "modTime": "2026-04-24T16:00:46+09:00",
     "size": 1139,
