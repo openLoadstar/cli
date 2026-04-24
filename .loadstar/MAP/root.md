@@ -7,6 +7,7 @@
 
 ### WAYPOINTS
 - M://root/cli
+- M://root/maintenance
 
 ### COMMENT
 (없음)
