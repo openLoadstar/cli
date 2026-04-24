@@ -43,5 +43,10 @@
     "modTime": "2026-04-24T16:00:46+09:00",
     "size": 1139,
     "status": "S_STB"
+  },
+  "W://root/maintenance/remove_check_cmd": {
+    "modTime": "2026-04-24T16:18:55+09:00",
+    "size": 1428,
+    "status": "S_STB"
   }
 }

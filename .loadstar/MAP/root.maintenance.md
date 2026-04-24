@@ -8,6 +8,7 @@
 
 ### WAYPOINTS
 - W://root/maintenance/fix_claude_md
+- W://root/maintenance/remove_check_cmd
 
 ### COMMENT
 (없음)

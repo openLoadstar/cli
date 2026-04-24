@@ -4,15 +4,14 @@
 
 1. 이 파일을 읽는다.
 2. `.loadstar/LOADSTAR_INIT.md` 를 읽어 현재 프로젝트 상태를 파악한다.
-3. `loadstar check` 를 실행하여 WP 동기화 상태를 확인한다 (git commit 대비 WP 수정시간 drift 검출).
-4. 사용자에게 아래 질문을 한다:
+3. 사용자에게 아래 질문을 한다:
 
 > **LOADSTAR SPEC 파일을 로드할까요?**
 > - 새로운 기능 구현, 설계 변경, SPEC 참조가 필요한 작업이면 **권장**
 > - 버그 수정, 단순 코드 수정이면 **불필요**
 
-5. **Yes** → `C:\bono\MCP\GIT\loadstar_SPEC\` 에서 관련 파일 로드
-6. **No** → `LOADSTAR_INIT.md` 내용만으로 진행
+4. **Yes** → `C:\bono\MCP\GIT\loadstar_SPEC\` 에서 관련 파일 로드
+5. **No** → `LOADSTAR_INIT.md` 내용만으로 진행
 
 ---
 
@@ -63,9 +62,8 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 
 ## 구현 완료 명령어
 
-`init` · `show` · `todo (sync/list/history)` · `log` · `validate` · `check`
+`init` · `show` · `todo (sync/list/history)` · `log` · `validate`
 
-- **`loadstar check`**: git 마지막 커밋 시점 대비 WP 파일 수정시간을 비교하여 OUTDATED WP를 표시합니다.
 - **`loadstar log [TIME] [FILTER]`**: 기간·키워드 필터 로그 조회 (이전 `findlog`는 이 명령으로 통합됨).
 
 ## 삭제된 명령어
@@ -75,6 +73,7 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 `checkpoint` · `git (set/status/unset)` — git 직접 사용으로 대체 (2026-04-08)
 `history` · `diff` · `rollback` · `link` — git 직접 활용으로 대체 (2026-04-02)
 `findlog` — `log [TIME_RANGE] [FILTER]`에 통합 (2026-04-10)
+`check` — `git status` + `loadstar show`로 대체 가능, 원래 의도(코드↔WP 정합성)는 폐기됨 (2026-04-24)
 
 ---
 
