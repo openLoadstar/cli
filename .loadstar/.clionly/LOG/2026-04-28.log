@@ -1,0 +1,4 @@
+2026-04-28T16:02:51|MODIFIED|W://root/maintenance/add_show_recent_flag|신규 WP 생성: show --recent + LAST_MODIFIED 컬럼
+2026-04-28T16:02:51|MODIFIED|M://root/maintenance|WAYPOINTS에 add_show_recent_flag 추가
+2026-04-28T16:04:57|MODIFIED|W://root/maintenance/add_show_recent_flag|S_PRG→S_STB: show --recent 플래그 + LAST_MODIFIED 컬럼 구현 완료, CLAUDE.md check 잔재 정리
+2026-04-28T16:04:57|MODIFIED|W://root/cli/cmd_show|show 출력에 LAST_MODIFIED 컬럼 + --recent 플래그 추가 (cmd/nav.go)

@@ -8,31 +8,39 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
+var showRecent bool
+
 var showCmd = &cobra.Command{
 	Use:   "show [FILTER]",
 	Short: "List all waypoints with status",
-	Long: `List all WayPoint elements with their address and status.
+	Long: `List all WayPoint elements with their address, status, and last-modified time.
 Optionally filter by keyword (case-insensitive match against address).
 
 Examples:
-  loadstar show                # list all waypoints
+  loadstar show                # list all waypoints (sorted by address)
   loadstar show cli            # filter: addresses containing "cli"
-  loadstar show test           # filter: addresses containing "test"`,
+  loadstar show --recent       # sort by most recently modified first
+  loadstar show cli --recent   # combine filter + recent sort`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		filter := ""
 		if len(args) > 0 {
 			filter = args[0]
 		}
-		listWaypoints(filter)
+		listWaypoints(filter, showRecent)
 	},
 }
 
-func listWaypoints(filter string) {
+func init() {
+	showCmd.Flags().BoolVar(&showRecent, "recent", false, "sort by most recently modified file first")
+}
+
+func listWaypoints(filter string, recent bool) {
 	loadstarBase := fs.AvcsPath("")
 	wpDir := filepath.Join(loadstarBase, "WAYPOINT")
 
@@ -43,8 +51,9 @@ func listWaypoints(filter string) {
 	}
 
 	type wpInfo struct {
-		Address string
-		Status  string
+		Address      string
+		Status       string
+		LastModified time.Time
 	}
 
 	var items []wpInfo
@@ -62,13 +71,19 @@ func listWaypoints(filter string) {
 			continue
 		}
 
-		content, err := fs.Read(filepath.Join(wpDir, f.Name()))
+		fullPath := filepath.Join(wpDir, f.Name())
+		content, err := fs.Read(fullPath)
 		if err != nil {
 			continue
 		}
 		status := extractField(content, `## \[STATUS\]\s+(\S+)`)
 
-		items = append(items, wpInfo{Address: addr, Status: status})
+		var mtime time.Time
+		if info, err := f.Info(); err == nil {
+			mtime = info.ModTime()
+		}
+
+		items = append(items, wpInfo{Address: addr, Status: status, LastModified: mtime})
 	}
 
 	if len(items) == 0 {
@@ -76,19 +91,32 @@ func listWaypoints(filter string) {
 		return
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Address < items[j].Address
-	})
+	if recent {
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].LastModified.After(items[j].LastModified)
+		})
+	} else {
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].Address < items[j].Address
+		})
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ADDRESS\tSTATUS")
-	fmt.Fprintln(w, "-------\t------")
+	fmt.Fprintln(w, "ADDRESS\tSTATUS\tLAST_MODIFIED")
+	fmt.Fprintln(w, "-------\t------\t-------------")
 	for _, item := range items {
-		fmt.Fprintf(w, "%s\t%s\n", item.Address, item.Status)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", item.Address, item.Status, formatMTime(item.LastModified))
 	}
 	w.Flush()
 
 	fmt.Printf("\n%d waypoint(s)\n", len(items))
+}
+
+func formatMTime(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Format("2006-01-02 15:04")
 }
 
 func extractField(content, pattern string) string {

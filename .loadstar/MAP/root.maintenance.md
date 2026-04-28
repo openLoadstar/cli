@@ -10,6 +10,7 @@
 - W://root/maintenance/fix_claude_md
 - W://root/maintenance/remove_check_cmd
 - W://root/maintenance/add_question_cmd
+- W://root/maintenance/add_show_recent_flag
 
 ### COMMENT
 (없음)
