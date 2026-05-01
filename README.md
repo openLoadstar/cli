@@ -83,5 +83,5 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 
 ## 관련 프로젝트
 
-- [loadstar_SPEC](https://github.com/aeolusk/loadstar_SPEC) — LOADSTAR 방법론 명세
-- [loadstar_ui](https://github.com/aeolusk/loadstar_ui) — 웹 기반 Explorer UI
+- [loadstar_SPEC](https://github.com/openLoadstar/spec) — LOADSTAR 방법론 명세
+- [loadstar_ui](https://github.com/openLoadstar/ui) — 웹 기반 Explorer UI
