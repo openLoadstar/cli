@@ -1,18 +1,20 @@
+> 🌐 **English** | **[한국어](README.ko.md)**
+
 # LOADSTAR CLI
 
-Go 기반 LOADSTAR 메타데이터 관리 도구. AI 에이전트와 사람이 공유하는 프로젝트 작업 단위(WayPoint)·인덱스(Map)·TODO·로그를 명령행에서 관리합니다.
+A Go-based LOADSTAR metadata management tool. Manage project work units (WayPoints), indexes (Maps), TODOs, and logs shared between AI agents and humans — all from the command line.
 
-> 📌 LOADSTAR가 처음이라면 먼저 [openLoadstar 전체 안내](https://github.com/openLoadstar/openLoadstar) 와 [방법론 명세(spec)](https://github.com/openLoadstar/spec) 를 참고하세요.
+> 📌 New to LOADSTAR? Start with the [openLoadstar overview](https://github.com/openLoadstar/openLoadstar) and the [methodology spec](https://github.com/openLoadstar/spec).
 
 ---
 
-## 🛠️ 설치
+## 🛠️ Installation
 
-### 사전 요구사항
+### Prerequisites
 
-- Go 1.21 이상
+- Go 1.21 or later
 
-### 빌드
+### Build
 
 ```bash
 git clone https://github.com/openLoadstar/cli.git
@@ -20,9 +22,9 @@ cd cli
 go build -o bin/loadstar.exe .
 ```
 
-빌드된 바이너리(`bin/loadstar.exe`)를 PATH에 추가하거나 절대경로로 호출합니다.
+Add the built binary (`bin/loadstar.exe`) to your PATH or invoke it by absolute path.
 
-### 빠른 동작 확인
+### Quick verification
 
 ```bash
 loadstar --help
@@ -30,144 +32,144 @@ loadstar --help
 
 ---
 
-## 📋 명령어
+## 📋 Commands
 
-| 명령 | 용도 |
+| Command | Purpose |
 |:---|:---|
-| `loadstar init` | `.loadstar/` 디렉토리 구조 초기화 |
-| `loadstar show [FILTER] [--recent]` | WayPoint 목록 (주소·STATUS·LAST_MODIFIED) — 키워드 필터 + 최근 수정순 정렬 |
-| `loadstar validate` | 모든 요소의 참조 무결성 검증, 깨진 링크 보고 |
-| `loadstar log [TIME_RANGE] [FILTER]` | 변경 로그 검색 — `7d`, `3h` 같은 기간 + 키워드 필터 |
-| `loadstar log add <ADDR> <KIND> "<MSG>"` | 로그 항목 직접 추가 |
-| `loadstar todo sync` | WayPoint STATUS 기반 TODO 자동 동기화 |
-| `loadstar todo list` | 현재 PENDING / ACTIVE / BLOCKED 작업 목록 |
-| `loadstar todo history [MAP_ADDR]` | 완료된 TECH_SPEC 항목 이력 |
-| `loadstar question [FILTER] [--with-resolved]` | 미해결 OPEN_QUESTIONS 조회 |
-| `loadstar question done <ADDR> <QID>` | RESOLVED 질문을 DONE으로 전환 |
-| `loadstar question close <ADDR> <QID> [사유]` | 결정 파일 없이 질문 직접 종료 |
-| `loadstar question stats` | OPEN/DEFERRED/RESOLVED/DONE 집계 |
+| `loadstar init` | Initialize the `.loadstar/` directory structure |
+| `loadstar show [FILTER] [--recent]` | List WayPoints (address · STATUS · LAST_MODIFIED) — keyword filter + sort by most recently modified |
+| `loadstar validate` | Verify referential integrity across all elements, report broken links |
+| `loadstar log [TIME_RANGE] [FILTER]` | Search change log — time range like `7d`, `3h` + keyword filter |
+| `loadstar log add <ADDR> <KIND> "<MSG>"` | Directly add a log entry |
+| `loadstar todo sync` | Auto-sync TODOs based on WayPoint STATUS |
+| `loadstar todo list` | Current PENDING / ACTIVE / BLOCKED task list |
+| `loadstar todo history [MAP_ADDR]` | History of completed TECH_SPEC items |
+| `loadstar question [FILTER] [--with-resolved]` | Query unresolved OPEN_QUESTIONS |
+| `loadstar question done <ADDR> <QID>` | Transition a RESOLVED question to DONE |
+| `loadstar question close <ADDR> <QID> [reason]` | Close a question directly without creating a Decision file |
+| `loadstar question stats` | Aggregate OPEN / DEFERRED / RESOLVED / DONE counts |
 
-> 자세한 옵션은 각 명령에 `--help` 를 붙여 확인하세요.
+> Run `--help` on any command for detailed options.
 
 ---
 
-## 🚀 빠른 시작
+## 🚀 Quick Start
 
-### 새 프로젝트에 LOADSTAR 도입
+### Introducing LOADSTAR into a new project
 
 ```bash
 cd /my/project
 
-# 1. 메타데이터 디렉토리 초기화
+# 1. Initialize the metadata directory
 loadstar init
 
-# 2. 첫 WayPoint·Map은 AI에게 작성을 요청하거나 직접 .loadstar/WAYPOINT/ 에 추가
-#    (자세한 절차는 openLoadstar README의 "AI 세션 진입 프롬프트" 참조)
+# 2. Create the first WayPoint & Map via AI, or add directly to .loadstar/WAYPOINT/
+#    (see "AI Session Entry Prompt" in the openLoadstar README for step-by-step instructions)
 
-# 3. 현재 상태 확인
-loadstar show           # 전체 WayPoint 목록
-loadstar show --recent  # 최근 수정순
-loadstar show frontend  # "frontend" 키워드 필터
+# 3. Check current state
+loadstar show           # all WayPoints
+loadstar show --recent  # sorted by most recently modified
+loadstar show frontend  # keyword filter: "frontend"
 
-# 4. 깨진 참조 검증
+# 4. Validate references
 loadstar validate
 ```
 
-### 일상적인 메타 운영
+### Day-to-day metadata operations
 
 ```bash
-# 진행 중인 작업 목록
+# Current task list
 loadstar todo list
 
-# WayPoint STATUS 변경 후 동기화
+# Sync TODOs after changing WayPoint STATUS
 loadstar todo sync
 
-# 완료 이력 조회
+# Browse completion history
 loadstar todo history
 loadstar todo history M://root/cli
 
-# 변경 로그 검색
-loadstar log 7d                    # 최근 7일
-loadstar log cmd_show              # 키워드 필터
-loadstar log 2d ISSUE              # 기간 + KIND 필터
+# Search change log
+loadstar log 7d                    # last 7 days
+loadstar log cmd_show              # keyword filter
+loadstar log 2d ISSUE              # time range + KIND filter
 
-# 사용자 결정이 필요한 미해결 질문 확인
+# Check unresolved questions requiring a human decision
 loadstar question
-loadstar question --with-resolved  # 결정 완료 항목까지 포함
+loadstar question --with-resolved  # include resolved items
 ```
 
-### 메타 이벤트 직접 기록
+### Recording a meta event directly
 
 ```bash
-loadstar log add W://root/cli/cmd_show MODIFIED "show 명령에 --recent 플래그 추가"
+loadstar log add W://root/cli/cmd_show MODIFIED "added --recent flag to show command"
 ```
 
 ---
 
-## 🧭 주소 체계
+## 🧭 Address Convention
 
 ```
 M://root/cli            →  .loadstar/MAP/root.cli.md
 W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 ```
 
-- **M (Map)**: WayPoint 묶음을 위한 인덱스 — STATUS 없음, 계층 경로만 표현
-- **W (WayPoint)**: 작업의 최소 단위 — IDENTITY / CONNECTIONS / CODE_MAP / TECH_SPEC / ISSUE 로 구성
+- **M (Map)**: An index for grouping WayPoints — no STATUS, represents hierarchy only
+- **W (WayPoint)**: The smallest work unit — composed of IDENTITY / CONNECTIONS / CODE_MAP / TECH_SPEC / ISSUE
 
 ---
 
-## 📂 디렉토리 구조
+## 📂 Directory Structure
 
 ```
 .loadstar/
-├── MAP/          M:// 요소 (마크다운)
-├── WAYPOINT/     W:// 요소 (마크다운)
-├── DECISIONS/    OPEN_QUESTIONS 결정 기록 (ADR)
-├── COMMON/       프로젝트 설정
-└── .clionly/     ⚠️ CLI 전용 — AI·사람 모두 직접 편집 금지
-    ├── LOG/      변경 이력 로그
-    └── TODO/     TODO_LIST·WP_SNAPSHOT (sync가 관리)
+├── MAP/          M:// elements (Markdown)
+├── WAYPOINT/     W:// elements (Markdown)
+├── DECISIONS/    OPEN_QUESTIONS decision records (ADR)
+├── COMMON/       Project settings
+└── .clionly/     ⚠️ CLI-only — do not edit directly (AI or human)
+    ├── LOG/      Change history log
+    └── TODO/     TODO_LIST · WP_SNAPSHOT (managed by sync)
 ```
 
-> `.clionly/` 직접 편집 시 LOG와 실제 메타 상태 간 정합성이 영구적으로 깨집니다.
+> Directly editing `.clionly/` permanently breaks consistency between LOG and the actual metadata state.
 
 ---
 
-## 🤖 AI 협업 워크플로우
+## 🤖 AI Collaboration Workflow
 
-1. **세션 시작 시** — AI는 `LOADSTAR_INIT.md` 와 SPEC을 로드하고, `loadstar show` / `loadstar todo list` / `loadstar question` 으로 현재 상태를 파악합니다.
-2. **코드 수정 전** — 대상 WayPoint의 TECH_SPEC에 `- [ ] 작업 내용` 을 등록합니다.
-3. **수정 완료 후** — `- [x] YYYY-MM-DD 작업 내용` 으로 체크합니다.
-4. **WayPoint 전체 완료** — STATUS를 `S_PRG → S_STB` 로 변경합니다.
-5. **TODO 갱신** — `loadstar todo sync` 로 WP STATUS 기반 TODO_LIST를 자동 갱신합니다.
-6. **검증** — 작업 종료 전 `loadstar validate` 로 깨진 참조가 없는지 확인합니다.
+1. **Session start** — AI loads `LOADSTAR_INIT.md` and the SPEC, then runs `loadstar show` / `loadstar todo list` / `loadstar question` to understand the current state.
+2. **Before modifying code** — Register `- [ ] task description` in the target WayPoint's TECH_SPEC.
+3. **After modification** — Check it off as `- [x] YYYY-MM-DD task description`.
+4. **WayPoint fully complete** — Change STATUS from `S_PRG → S_STB`.
+5. **Sync TODOs** — Run `loadstar todo sync` to auto-update TODO_LIST from WP STATUS.
+6. **Validate** — Run `loadstar validate` before finishing to confirm no broken references.
 
-> Claude Code 환경에서는 PostToolUse Hook이 소스 편집 시 TECH_SPEC 등록·갱신 리마인더를 자동 출력하도록 구성할 수 있습니다.
-
----
-
-## 🧩 의존성
-
-- [cobra](https://github.com/spf13/cobra) — CLI 프레임워크
-
-표준 라이브러리 외 추가 의존성 최소화 정책.
+> In Claude Code, a PostToolUse Hook can be configured to automatically output a TECH_SPEC registration/update reminder whenever source files are edited.
 
 ---
 
-## 🔗 관련 프로젝트
+## 🧩 Dependencies
 
-- 🌐 **[openLoadstar](https://github.com/openLoadstar/openLoadstar)** — 전체 생태계 안내
-- 📖 **[spec](https://github.com/openLoadstar/spec)** — LOADSTAR 방법론 명세
-- 🖥️ **[ui](https://github.com/openLoadstar/ui)** — Spring Boot + React 기반 Explorer UI
-- 🔌 **[mcp](https://github.com/openLoadstar/mcp)** — Python MCP 서버 (Claude Desktop·Cursor 등 외부 AI 클라이언트 연동)
+- [cobra](https://github.com/spf13/cobra) — CLI framework
+
+Minimal external dependencies policy (beyond the standard library).
 
 ---
 
-## 📮 기여 / 보안
+## 🔗 Related Projects
 
-- 🤝 **기여 가이드**: [openLoadstar/CONTRIBUTING.ko.md](https://github.com/openLoadstar/openLoadstar/blob/main/CONTRIBUTING.ko.md)
-- 🔒 **보안 신고**: [openLoadstar/SECURITY.ko.md](https://github.com/openLoadstar/openLoadstar/blob/main/SECURITY.ko.md) — GitHub Security Advisories를 우선 사용해 주세요.
-- 💬 **질문·아이디어**: [GitHub Discussions](https://github.com/openLoadstar/openLoadstar/discussions)
+- 🌐 **[openLoadstar](https://github.com/openLoadstar/openLoadstar)** — Full ecosystem overview
+- 📖 **[spec](https://github.com/openLoadstar/spec)** — LOADSTAR methodology specification
+- 🖥️ **[ui](https://github.com/openLoadstar/ui)** — Spring Boot + React Explorer UI
+- 🔌 **[mcp](https://github.com/openLoadstar/mcp)** — Python MCP server (for external AI clients: Claude Desktop, Cursor, etc.)
+
+---
+
+## 📮 Contributing / Security
+
+- 🤝 **Contributing**: [openLoadstar/CONTRIBUTING.md](https://github.com/openLoadstar/openLoadstar/blob/main/CONTRIBUTING.md)
+- 🔒 **Security**: [openLoadstar/SECURITY.md](https://github.com/openLoadstar/openLoadstar/blob/main/SECURITY.md) — Please use GitHub Security Advisories.
+- 💬 **Questions & Ideas**: [GitHub Discussions](https://github.com/openLoadstar/openLoadstar/discussions)
 
 ---
 
