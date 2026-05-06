@@ -1,2 +1,9 @@
 .loadstar/COMMON/git_config.json
 bin/loadstar.exe
+
+# Runtime-generated logs (CLI internal)
+.loadstar/.clionly/LOG/
+
+# AI agent local config
+.serena/
+.claude/

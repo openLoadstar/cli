@@ -45,7 +45,6 @@
 ### ISSUE
 - OPEN_QUESTIONS:
   - [Q1] `loadstar question --with-resolved` 플래그로 RESOLVED 질문도 표시할 수 있게 할지? (Git log 대체 가치)
-  - [Q2] Decision 파일 참조 무결성 검사(DECISIONS/<id>.md 존재 여부)를 `validate`에 추가할지, 이 명령에 추가할지?
 
 ### COMMENT
 - Decision 파일 생성 스캐폴드 명령(`loadstar decision add`)은 **의도적으로 보류**. 피드백 기반으로 v2에서 결정. 지금은 UI 또는 수동 작성.
