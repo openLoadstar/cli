@@ -20,10 +20,14 @@ type brokenRef struct {
 var validateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Check all element references for broken links",
-	Long: `Scan all WayPoint and Map files, extract referenced addresses,
-and verify that each referenced element exists on disk.
+	Long: `Scan all WayPoint and Map files and verify that all references exist on disk.
 
-Reports any broken references (addresses pointing to non-existent files).
+Checks:
+  - WayPoint PARENT, CHILDREN, REFERENCE addresses
+  - Map WAYPOINTS entries
+  - CONFIRMED Q decision file references (DECISIONS/<ref>.md)
+
+Reports broken references as a SOURCE / FIELD / BROKEN_ADDRESS table.
 
 Examples:
   loadstar validate`,
