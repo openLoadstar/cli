@@ -17,18 +17,15 @@
   - cmd/
 
 ### TODO
-- ADDRESS: W://root/maintenance/remove_check_cmd
-- SUMMARY: check 명령 소스/WP/문서 전면 제거
-- TECH_SPEC:
-  - [x] 2026-04-24 cmd/check.go 삭제
-  - [x] 2026-04-24 cmd/root.go에서 checkCmd AddCommand 제거
-  - [x] 2026-04-24 W://root/cli/cmd_check WP 파일 삭제
-  - [x] 2026-04-24 root.cli MAP의 WAYPOINTS 리스트에서 cmd_check 제거
-  - [x] 2026-04-24 loadstar_cli/CLAUDE.md 세션 시작 절차에서 `loadstar check` 단계 제거
-  - [x] 2026-04-24 loadstar_ui/CLAUDE.md 세션 시작 절차에서 `loadstar check` 단계 제거
-  - [x] 2026-04-24 loadstar_SPEC/README.md에서 check 언급 제거
-  - [x] 2026-04-24 go build 검증
-  - (R) 변경 후 `go build -o bin/loadstar.exe .` 실행하여 컴파일 검증
+- [x] 2026-04-24 cmd/check.go 삭제
+- [x] 2026-04-24 cmd/root.go에서 checkCmd AddCommand 제거
+- [x] 2026-04-24 W://root/cli/cmd_check WP 파일 삭제
+- [x] 2026-04-24 root.cli MAP의 WAYPOINTS 리스트에서 cmd_check 제거
+- [x] 2026-04-24 loadstar_cli/CLAUDE.md 세션 시작 절차에서 `loadstar check` 단계 제거
+- [x] 2026-04-24 loadstar_ui/CLAUDE.md 세션 시작 절차에서 `loadstar check` 단계 제거
+- [x] 2026-04-24 loadstar_SPEC/README.md에서 check 언급 제거
+- [x] 2026-04-24 go build 검증
+- (R) 변경 후 `go build -o bin/loadstar.exe .` 실행하여 컴파일 검증
 
 ### ISSUE
 (없음)

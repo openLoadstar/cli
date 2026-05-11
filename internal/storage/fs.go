@@ -120,7 +120,7 @@ case "$BASENAME" in
 esac
 
 echo "[LOADSTAR] 소스 파일 수정됨: $FILE_PATH"
-echo "[LOADSTAR] 작업 착수 전 대상 WayPoint TECH_SPEC에 작업 항목을 [ ]로 등록했는지 확인하세요."
+echo "[LOADSTAR] 작업 착수 전 대상 WayPoint TODO에 작업 항목을 [ ]로 등록했는지 확인하세요."
 echo "[LOADSTAR] 작업 완료 후 [x] YYYY-MM-DD로 체크하고, 필요 시 STATUS를 갱신하세요."
 
 exit 0

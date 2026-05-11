@@ -43,7 +43,7 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 - **WayPoint**: IDENTITY, CONNECTIONS (PARENT/CHILDREN/REFERENCE), TODO, ISSUE, COMMENT
 
 ### 작업 착수 규칙 (필수)
-1. **코드 수정 전**: 대상 WayPoint의 TECH_SPEC에 작업 항목을 `[ ]`로 추가
+1. **코드 수정 전**: 대상 WayPoint의 TODO에 작업 항목을 `[ ]`로 추가
 2. **코드 수정 완료 후**: `[x] YYYY-MM-DD 항목명`으로 체크
 3. **WP 전체 완료 시**: STATUS를 `S_PRG → S_STB`로 변경
 4. 항목 추가 없이 코드 수정 착수 금지 — Hook이 리마인드함
@@ -51,11 +51,11 @@ W://root/cli/cmd_show   →  .loadstar/WAYPOINT/root.cli.cmd_show.md
 ### 작업 진입 순서
 | 작업 유형 | 진입 순서 |
 |---|---|
-| 기능 구현 / 설계 변경 / 영향 범위 불명확 | MAP → WayPoint TECH_SPEC 항목 등록 → 코드 |
-| 명확한 버그 수정 / 단일 함수 수정 | grep → 코드 → WayPoint TECH_SPEC 사후 등록 + 체크 |
+| 기능 구현 / 설계 변경 / 영향 범위 불명확 | MAP → WayPoint TODO 항목 등록 → 코드 |
+| 명확한 버그 수정 / 단일 함수 수정 | grep → 코드 → WayPoint TODO 사후 등록 + 체크 |
 
 ### 메타 동기화
-- **Hook**: `.claude/hooks/loadstar-drift-check.sh`가 소스코드 편집 시 TECH_SPEC 등록/갱신 리마인더 출력
+- **Hook**: `.claude/hooks/loadstar-drift-check.sh`가 소스코드 편집 시 TODO 등록/갱신 리마인더 출력
 - **todo sync**: `loadstar todo sync`로 WP STATUS 기반 TODO_LIST 자동 동기화
 
 ---

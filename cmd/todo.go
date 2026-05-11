@@ -39,7 +39,7 @@ var todoCmd = &cobra.Command{
 Subcommands:
   sync     Scan WayPoint files and update TODO_LIST
   list     Show current PENDING/ACTIVE/BLOCKED items
-  history  Show completed TECH_SPEC items from WayPoints
+  history  Show completed TODO items from WayPoints
 
 Examples:
   loadstar todo sync
@@ -246,8 +246,8 @@ var todoListCmd = &cobra.Command{
 
 var todoHistoryCmd = &cobra.Command{
 	Use:   "history [MAP_ADDRESS]",
-	Short: "Show completed TECH_SPEC items from WayPoints",
-	Long: `Collect completed TECH_SPEC items ([x] YYYY-MM-DD ...) from WayPoints
+	Short: "Show completed TODO items from WayPoints",
+	Long: `Collect completed TODO items ([x] YYYY-MM-DD ...) from WayPoints
 and display them sorted newest-first.
 
 Without arguments: scan all WayPoints.
